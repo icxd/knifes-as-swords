@@ -3,6 +3,7 @@ package io.github.icxd.knives_as_swords;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
+import io.github.icxd.knives_as_swords.fx.CustomEffect;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -29,10 +30,19 @@ public final class ModConfig {
 	public boolean firstPersonAnimations = true;
 	/** Draw knives with reflections, so that metal looks like metal; off draws them like any other item. */
 	public boolean shine = true;
+	/** Draw the effects around knives: trails, afterimages, bolts, sparks and glow. */
+	public boolean effects = true;
 	/** Longest side of knife textures in pixels; larger source images are scaled down. */
 	public int textureSize = 1024;
 	/** What each sword looks like, keyed by item id such as {@code minecraft:diamond_sword}. */
 	public Map<String, SwordSetting> swords = new LinkedHashMap<>();
+	/**
+	 * The mod's other visuals, keyed by their name: whether each is {@code enabled}, and its
+	 * settings as text. See {@link io.github.icxd.knives_as_swords.visuals.Visual}.
+	 */
+	public Map<String, Map<String, String>> visuals = new LinkedHashMap<>();
+	/** Where things are in the menu, as the player left them. */
+	public Map<String, String> menu = new LinkedHashMap<>();
 
 	/** How one kind of sword is shown. */
 	public static final class SwordSetting {
@@ -46,6 +56,13 @@ public final class ModConfig {
 		public int pattern = 0;
 		/** Wear, 0 (factory new) to 1 (battle-scarred). */
 		public float wear = 0f;
+		/**
+		 * The look of the knife's effects, such as {@code phantom}; {@code none} for no effects,
+		 * {@code custom} for {@link #customEffect}, empty for the mod's default for this sword.
+		 */
+		public String effect = "";
+		/** A look the player put together for this sword; {@code null} until they do. */
+		public CustomEffect customEffect;
 
 		public SwordSetting copy() {
 			SwordSetting copy = new SwordSetting();
@@ -54,12 +71,18 @@ public final class ModConfig {
 			copy.finish = finish;
 			copy.pattern = pattern;
 			copy.wear = wear;
+			copy.effect = effect;
+			copy.customEffect = customEffect != null ? customEffect.copy() : null;
 			return copy;
 		}
 
 		void sanitize() {
 			knife = knife == null ? "" : knife.trim();
 			finish = finish == null ? "" : finish.trim();
+			effect = effect == null ? "" : effect.trim();
+			if (customEffect != null) {
+				customEffect.sanitize();
+			}
 			pattern = Math.clamp(pattern, 0, MAX_PATTERN);
 			wear = Float.isNaN(wear) ? 0f : Math.clamp(wear, 0f, 1f);
 		}
@@ -101,6 +124,32 @@ public final class ModConfig {
 			});
 		}
 		swords = clean;
+
+		Map<String, Map<String, String>> cleanVisuals = new LinkedHashMap<>();
+		if (visuals != null) {
+			visuals.forEach((visual, values) -> {
+				if (visual != null && values != null) {
+					Map<String, String> cleanValues = new LinkedHashMap<>();
+					values.forEach((key, value) -> {
+						if (key != null && value != null) {
+							cleanValues.put(key, value);
+						}
+					});
+					cleanVisuals.put(visual, cleanValues);
+				}
+			});
+		}
+		visuals = cleanVisuals;
+
+		Map<String, String> cleanMenu = new LinkedHashMap<>();
+		if (menu != null) {
+			menu.forEach((key, value) -> {
+				if (key != null && value != null) {
+					cleanMenu.put(key, value);
+				}
+			});
+		}
+		menu = cleanMenu;
 	}
 
 	public void save(Path file) {

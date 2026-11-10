@@ -8,6 +8,7 @@ import io.github.icxd.knives_as_swords.extract.ExtractorInstaller;
 import io.github.icxd.knives_as_swords.extract.ExtractorRelease;
 import io.github.icxd.knives_as_swords.extract.KnifeExporter;
 import io.github.icxd.knives_as_swords.extract.ResourceDumper;
+import io.github.icxd.knives_as_swords.extract.SoundExporter;
 import io.github.icxd.knives_as_swords.extract.Source2ViewerCli;
 import io.github.icxd.knives_as_swords.finish.FinishPainter;
 import java.io.IOException;
@@ -61,6 +62,7 @@ public final class KnifeRuntime {
 	private final Path dataDir;
 	private final KnifeExporter exporter;
 	private final ResourceDumper dumper;
+	private final SoundExporter sounds;
 	private final Optional<ExtractorInstaller> installer;
 	private final ExecutorService worker = Executors.newSingleThreadExecutor(runnable -> {
 		Thread thread = new Thread(runnable, KnivesAsSwordsClient.MOD_ID + "-worker");
@@ -84,6 +86,7 @@ public final class KnifeRuntime {
 		this.dataDir = dataDir;
 		this.exporter = new KnifeExporter(dataDir.resolve("cache"));
 		this.dumper = new ResourceDumper(dataDir.resolve("cache"));
+		this.sounds = new SoundExporter(dataDir.resolve("cache"));
 		this.installer = ExtractorRelease.current()
 				.map(release -> ExtractorInstaller.forRelease(dataDir.resolve("tools"), release));
 	}
@@ -292,6 +295,20 @@ public final class KnifeRuntime {
 		};
 		return FinishPainter.paint(resources, knifeMaterial, finish.compositePath(), pattern, finish.clampWear(wear),
 				size);
+	}
+
+	/**
+	 * Converts the knife sounds into the local cache, unless that was done before for this version
+	 * of the game. Worker thread only (run it through {@link #onWorker}).
+	 *
+	 * @return the folder they are in, one {@code .mp3} file per sound
+	 */
+	public Path knifeSounds(Cs2Install install) throws IOException, InterruptedException {
+		Optional<Path> cached = sounds.cached(install);
+		if (cached.isPresent()) {
+			return cached.get();
+		}
+		return sounds.knifeSounds(extractor(), install);
 	}
 
 	/** Worker thread only. */

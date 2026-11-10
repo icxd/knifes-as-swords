@@ -1,5 +1,6 @@
 package io.github.icxd.knives_as_swords.render;
 
+import io.github.icxd.knives_as_swords.fx.BladeShape;
 import io.github.icxd.knives_as_swords.model.KnifeAnimations;
 import io.github.icxd.knives_as_swords.model.KnifeMesh;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -37,6 +38,7 @@ public final class KnifeVisual {
 
 	private final Appearance appearance;
 	private final KnifeMesh mesh;
+	private final BladeShape blade;
 	private final @Nullable KnifeAnimations animations;
 	private final Identifier texture;
 	private final Identifier surfaceTexture;
@@ -53,6 +55,7 @@ public final class KnifeVisual {
 			Identifier surfaceTexture) {
 		this.appearance = appearance;
 		this.mesh = mesh;
+		this.blade = BladeShape.of(mesh);
 		this.animations = animations;
 		this.texture = texture;
 		this.surfaceTexture = surfaceTexture;
@@ -114,6 +117,11 @@ public final class KnifeVisual {
 
 	public KnifeMesh mesh() {
 		return mesh;
+	}
+
+	/** Where the knife's blade is; effects start from it. */
+	public BladeShape blade() {
+		return blade;
 	}
 
 	/** The knife's first-person animations; {@code null} when it has none or they could not be read. */

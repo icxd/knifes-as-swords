@@ -4,15 +4,28 @@ import com.google.gson.JsonObject;
 import com.mojang.blaze3d.platform.InputConstants;
 import io.github.icxd.knives_as_swords.KnifeRuntime;
 import io.github.icxd.knives_as_swords.KnivesAsSwordsClient;
+import io.github.icxd.knives_as_swords.ModConfig;
+import io.github.icxd.knives_as_swords.fx.CustomEffect;
+import io.github.icxd.knives_as_swords.screen.ClickMenuScreen;
+import io.github.icxd.knives_as_swords.screen.EffectScreen;
+import io.github.icxd.knives_as_swords.screen.GradientScreen;
+import io.github.icxd.knives_as_swords.sound.KnifeAudio;
+import io.github.icxd.knives_as_swords.visuals.Setting;
+import io.github.icxd.knives_as_swords.visuals.Visual;
+import io.github.icxd.knives_as_swords.visuals.Visuals;
+import io.github.icxd.knives_as_swords.visuals.combat.KillEffects;
+import io.github.icxd.knives_as_swords.visuals.player.Halo;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Map;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.CameraType;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 
@@ -21,6 +34,10 @@ import net.minecraft.world.item.Items;
  * the actual game files and an installed extractor, so it only runs when asked to:
  *
  * <pre>KNIVES_VISUAL_EXTRACTOR=/path/to/Source2Viewer-CLI ./gradlew runClientGameTest</pre>
+ *
+ * <p>With {@code KNIVES_VISUAL_ONLY=effects} set as well, only the part about the knives' effects
+ * runs; with {@code KNIVES_VISUAL_ONLY=visuals}, only the part about the other visuals and their
+ * menu; with {@code KNIVES_VISUAL_ONLY=sounds}, only the part about the knife sounds.
  *
  * <p>The screenshots show converted game content. They land in the (ignored) build folder and
  * must stay there.
@@ -86,6 +103,20 @@ public class KnivesVisualGameTest implements FabricClientGameTest {
 				}
 			}
 			context.waitTicks(5);
+
+			String only = System.getenv("KNIVES_VISUAL_ONLY");
+			if (only == null || only.equals("effects")) {
+				effects(context, singleplayer, runtime);
+			}
+			if (only == null || only.equals("visuals")) {
+				visuals(context, singleplayer);
+			}
+			if (only == null || only.equals("sounds")) {
+				sounds(context);
+			}
+			if (only != null) {
+				return;
+			}
 
 			for (int slot = 0; slot < SWORDS.length; slot++) {
 				int selected = slot;
@@ -190,5 +221,310 @@ public class KnivesVisualGameTest implements FabricClientGameTest {
 			context.waitTicks(30);
 			context.takeScreenshot("visual-holders");
 		}
+	}
+
+	/**
+	 * The knife's sounds. A picture cannot show them, so this goes by what the mod itself counts:
+	 * they have to be there, and taking the knife out, swinging it and looking at it each have to
+	 * hand one to the game's sound engine. What the engine made of the first is in the log.
+	 */
+	private static void sounds(ClientGameTestContext context) {
+		context.runOnClient(client -> client.player.getInventory().setSelectedSlot(5));
+		context.waitFor(client -> KnifeAudio.ready(), 20 * 120);
+		context.waitTicks(20);
+		int[] played = new int[2];
+		context.runOnClient(client -> played[0] = KnifeAudio.played());
+
+		context.runOnClient(client -> client.player.getInventory().setSelectedSlot(6));
+		context.waitTicks(30);
+		context.getInput().pressKey(options -> options.keyAttack);
+		context.waitTicks(30);
+		context.getInput().pressKey(InputConstants.KEY_G);
+		context.waitTicks(20);
+		context.runOnClient(client -> played[1] = KnifeAudio.played());
+		if (played[1] - played[0] < 3) {
+			throw new AssertionError("taking the knife out, a swing and a look at it should each make a sound, but only "
+					+ (played[1] - played[0]) + " were played");
+		}
+		context.waitTicks(60);
+	}
+
+	/**
+	 * The visuals that have nothing to do with knives, and the menu they are switched on in. For the
+	 * pictures every one of them is on, also those that are off unless a player asks for them.
+	 */
+	private static void visuals(ClientGameTestContext context, TestSingleplayerContext singleplayer) {
+		singleplayer.getServer().runCommand("time set midnight");
+		context.runOnClient(client -> client.player.getInventory().setSelectedSlot(6));
+		context.runOnClient(client -> Visuals.all().forEach(visual -> visual.set(true)));
+		context.getInput().lookAt(0f, 50f);
+		context.waitTicks(20);
+		// Looking at the ground: the crosshair, the outline round a block, and everything on the display.
+		context.takeScreenshot("visuals-first-person");
+
+		// The menu, and one visual's settings unfolded by a right-click on it.
+		context.getInput().pressKey(InputConstants.KEY_RSHIFT);
+		context.waitForScreen(ClickMenuScreen.class);
+		context.waitTicks(10);
+		context.takeScreenshot("visuals-menu");
+		int[] scale = new int[1];
+		context.runOnClient(client -> scale[0] = client.getWindow().getGuiScale());
+		// The second line of the first panel: below its title and the knives' entry.
+		context.getInput().setCursorPos(50 * scale[0], 73 * scale[0]);
+		context.waitTicks(2);
+		context.getInput().pressMouse(InputConstants.MOUSE_BUTTON_RIGHT);
+		context.waitTicks(5);
+		context.takeScreenshot("visuals-menu-settings");
+		context.getInput().pressKey(InputConstants.KEY_ESCAPE);
+		context.waitForScreen(null);
+
+		// Where a visual's colours are put together.
+		context.runOnClient(client -> {
+			for (Setting setting : Visuals.get(KillEffects.class).settings()) {
+				if (setting instanceof Setting.Colors colors) {
+					client.gui.setScreen(new GradientScreen(null, Component.literal("Kill Effects: Colours"), colors, () -> { }));
+					break;
+				}
+			}
+		});
+		context.waitForScreen(GradientScreen.class);
+		context.waitTicks(10);
+		context.takeScreenshot("visuals-colours");
+		context.getInput().pressKey(InputConstants.KEY_ESCAPE);
+		context.waitForScreen(null);
+
+		// A hit: sparks, a ring, a number, and the panel about what is being fought.
+		context.getInput().lookAt(0f, 5f);
+		singleplayer.getServer().runCommand("execute at @p run summon husk ~ ~ ~1.6 {NoAI:1b,Silent:1b,Rotation:[180f,0f]}");
+		context.waitTicks(15);
+		context.getInput().pressKey(options -> options.keyAttack);
+		for (int i = 0; i < 6; i++) {
+			context.waitTicks(i < 3 ? 1 : 3);
+			context.takeScreenshot("visuals-hit-" + i);
+		}
+		singleplayer.getServer().runCommand("kill @e[type=husk]");
+		context.waitTicks(30);
+
+		// A kill, in each of its styles.
+		for (String style : new String[] {"burst", "pillar", "bolts", "souls"}) {
+			context.runOnClient(client -> Visuals.get(KillEffects.class).read(Map.of("enabled", "true", "style", style)));
+			singleplayer.getServer().runCommand(
+					"execute at @p run summon husk ~ ~ ~2.4 {NoAI:1b,Silent:1b,Health:1f,Rotation:[180f,0f]}");
+			context.waitTicks(15);
+			context.getInput().pressKey(options -> options.keyAttack);
+			int[] waits = {2, 3, 4, 6};
+			for (int i = 0; i < waits.length; i++) {
+				context.waitTicks(waits[i]);
+				context.takeScreenshot("visuals-kill-" + style + "-" + i);
+			}
+			context.waitTicks(30);
+		}
+		singleplayer.getServer().runCommand("kill @e[type=item]");
+		singleplayer.getServer().runCommand("kill @e[type=experience_orb]");
+
+		// Seen from outside: the trail behind the player, the rings of a jump, and what there is to wear.
+		context.runOnClient(client -> client.options.setCameraType(CameraType.THIRD_PERSON_BACK));
+		context.getInput().holdKey(options -> options.keyUp);
+		context.waitTicks(12);
+		context.takeScreenshot("visuals-trail");
+		context.getInput().holdKeyFor(options -> options.keyJump, 3);
+		context.waitTicks(3);
+		context.takeScreenshot("visuals-jump-0");
+		context.waitTicks(10);
+		context.takeScreenshot("visuals-jump-1");
+		context.getInput().releaseKey(options -> options.keyUp);
+		context.waitTicks(15);
+		for (String style : new String[] {"halo", "hat", "wisps"}) {
+			context.runOnClient(client -> Visuals.get(Halo.class).read(Map.of("enabled", "true", "style", style)));
+			context.waitTicks(10);
+			context.takeScreenshot("visuals-halo-" + style);
+		}
+		context.runOnClient(client -> client.options.setCameraType(CameraType.FIRST_PERSON));
+
+		// By day: the tinted sky and fog.
+		singleplayer.getServer().runCommand("time set noon");
+		context.getInput().lookAt(0f, -25f);
+		context.waitTicks(30);
+		context.takeScreenshot("visuals-sky");
+
+		// Back to how a player finds things.
+		context.runOnClient(client -> {
+			for (Visual visual : Visuals.all()) {
+				visual.read(Map.of());
+			}
+		});
+		context.getInput().lookAt(0f, 5f);
+		context.waitTicks(10);
+	}
+
+	/**
+	 * Trails, afterimages, bolts, sparks and glow. They only show in motion, and a slash is over in
+	 * a blink, so every move is photographed several times in a row.
+	 */
+	private static void effects(ClientGameTestContext context, TestSingleplayerContext singleplayer,
+			KnifeRuntime runtime) {
+		// Light on dark shows best; and something to hit.
+		singleplayer.getServer().runCommand("time set midnight");
+		context.getInput().lookAt(0f, 5f);
+		context.waitTicks(20);
+
+		// Each sword has a look of its own by default: copper, golden, diamond, netherite.
+		for (int slot : new int[] {2, 4, 5, 6}) {
+			context.runOnClient(client -> client.player.getInventory().setSelectedSlot(slot));
+			context.waitTicks(3);
+			context.takeScreenshot("effects-" + slot + "-draw");
+			context.waitTicks(30);
+			context.takeScreenshot("effects-" + slot + "-rest");
+			context.getInput().pressKey(options -> options.keyAttack);
+			for (int i = 0; i < 6; i++) {
+				context.waitTicks(1);
+				context.takeScreenshot("effects-" + slot + "-swing-" + i);
+			}
+			context.waitTicks(20);
+		}
+
+		// The other looks, on the same knife.
+		for (String effect : new String[] {"storm", "venom", "prism"}) {
+			context.runOnClient(client -> runtime.updateConfig(
+					settings -> settings.swords.get("minecraft:netherite_sword").effect = effect));
+			context.waitTicks(25);
+			context.takeScreenshot("effects-" + effect + "-rest");
+			context.getInput().pressKey(options -> options.keyAttack);
+			for (int i = 0; i < 5; i++) {
+				context.waitTicks(1);
+				context.takeScreenshot("effects-" + effect + "-swing-" + i);
+			}
+			context.waitTicks(20);
+		}
+
+		// Looking the knife over, and hitting something.
+		context.getInput().pressKey(InputConstants.KEY_G);
+		for (int i = 0; i < 3; i++) {
+			context.waitTicks(12);
+			context.takeScreenshot("effects-inspect-" + i);
+		}
+		context.waitTicks(100);
+		singleplayer.getServer().runCommand("execute at @p run summon husk ~ ~ ~1.6 {NoAI:1b,Silent:1b,Rotation:[180f,0f]}");
+		context.waitTicks(10);
+		context.getInput().pressKey(options -> options.keyAttack);
+		for (int i = 0; i < 8; i++) {
+			context.waitTicks(1);
+			context.takeScreenshot("effects-hit-" + i);
+		}
+		context.waitTicks(20);
+
+		// Seen from outside, the swing leaves its trail in the world, and a hit throws sparks there.
+		context.runOnClient(client -> client.options.setCameraType(CameraType.THIRD_PERSON_BACK));
+		context.waitTicks(15);
+		context.takeScreenshot("effects-outside-rest");
+		context.getInput().pressKey(options -> options.keyAttack);
+		for (int i = 0; i < 7; i++) {
+			context.waitTicks(1);
+			context.takeScreenshot("effects-outside-hit-" + i);
+		}
+		context.waitTicks(20);
+		singleplayer.getServer().runCommand("kill @e[type=husk]");
+		context.runOnClient(client -> client.options.setCameraType(CameraType.THIRD_PERSON_FRONT));
+		context.waitTicks(15);
+		context.getInput().pressKey(options -> options.keyAttack);
+		for (int i = 0; i < 6; i++) {
+			context.waitTicks(1);
+			context.takeScreenshot("effects-outside-swing-" + i);
+		}
+		context.runOnClient(client -> client.options.setCameraType(CameraType.FIRST_PERSON));
+		context.waitTicks(10);
+
+		// Knives that are simply there: dropped, and in other hands.
+		singleplayer.getServer().runCommand(
+				"execute at @p run summon item ~-0.6 ~ ~2 {Item:{id:\"minecraft:diamond_sword\"},PickupDelay:32767}");
+		singleplayer.getServer().runCommand("execute at @p run summon armor_stand ~0.8 ~ ~2.5 {ShowArms:1b,"
+				+ "NoGravity:1b,Rotation:[90f,0f],equipment:{mainhand:{id:\"minecraft:netherite_sword\",count:1}}}");
+		context.getInput().lookAt(0f, 25f);
+		context.waitTicks(40);
+		context.takeScreenshot("effects-lying-and-held");
+
+		// Minecraft has a second way of drawing see-through things in the world, which takes pipelines
+		// of its own; without them the game would stop right here.
+		context.runOnClient(client -> client.options.improvedTransparency().set(true));
+		context.waitTicks(20);
+		context.takeScreenshot("effects-improved-transparency-lying-and-held");
+		singleplayer.getServer().runCommand("kill @e[type=armor_stand]");
+		context.getInput().lookAt(0f, 5f);
+		context.runOnClient(client -> client.options.setCameraType(CameraType.THIRD_PERSON_FRONT));
+		context.waitTicks(15);
+		context.getInput().pressKey(options -> options.keyAttack);
+		for (int i = 0; i < 5; i++) {
+			context.waitTicks(1);
+			context.takeScreenshot("effects-improved-transparency-swing-" + i);
+		}
+		context.runOnClient(client -> client.options.setCameraType(CameraType.FIRST_PERSON));
+		context.runOnClient(client -> client.options.improvedTransparency().set(false));
+		context.waitTicks(20);
+
+		// The settings screen shows the look it offers.
+		context.getInput().pressKey(InputConstants.KEY_K);
+		context.waitForScreen(io.github.icxd.knives_as_swords.screen.KnivesScreen.class);
+		context.waitTicks(30);
+		context.takeScreenshot("effects-settings");
+		context.waitTicks(12);
+		context.takeScreenshot("effects-settings-later");
+		context.getInput().pressKey(InputConstants.KEY_ESCAPE);
+		context.waitForScreen(null);
+		context.waitTicks(5);
+
+		// The editor for a look of one's own. Its knife slashes by itself every few seconds.
+		context.runOnClient(client -> client.gui.setScreen(new EffectScreen(null, Items.NETHERITE_SWORD)));
+		context.waitForScreen(EffectScreen.class);
+		context.waitTicks(8);
+		for (int i = 0; i < 12; i++) {
+			context.waitTicks(2);
+			context.takeScreenshot("effects-editor-" + i);
+		}
+		context.getInput().pressKey(InputConstants.KEY_ESCAPE);
+		context.waitForScreen(null);
+
+		// A look put together by hand: three colours, bolts all over, sparks that rise.
+		context.runOnClient(client -> runtime.updateConfig(settings -> {
+			ModConfig.SwordSetting sword = settings.swords.get("minecraft:netherite_sword");
+			CustomEffect custom = new CustomEffect();
+			custom.bolts = 1f;
+			custom.sparkDrift = 0.8f;
+			custom.colors.add(new CustomEffect.ColorStop(0f, "#00FF66"));
+			custom.colors.add(new CustomEffect.ColorStop(0.5f, "#FFE600"));
+			custom.colors.add(new CustomEffect.ColorStop(1f, "#FF2A00"));
+			sword.effect = "custom";
+			sword.customEffect = custom;
+		}));
+		context.waitTicks(25);
+		context.takeScreenshot("effects-custom-rest");
+		context.getInput().pressKey(options -> options.keyAttack);
+		for (int i = 0; i < 5; i++) {
+			context.waitTicks(1);
+			context.takeScreenshot("effects-custom-swing-" + i);
+		}
+		context.waitTicks(20);
+		context.runOnClient(client -> client.gui.setScreen(new EffectScreen(null, Items.NETHERITE_SWORD)));
+		context.waitForScreen(EffectScreen.class);
+		context.waitTicks(20);
+		for (int i = 0; i < 6; i++) {
+			context.waitTicks(2);
+			context.takeScreenshot("effects-editor-custom-" + i);
+		}
+		context.getInput().pressKey(InputConstants.KEY_ESCAPE);
+		context.waitForScreen(null);
+		context.getInput().pressKey(InputConstants.KEY_K);
+		context.waitForScreen(io.github.icxd.knives_as_swords.screen.KnivesScreen.class);
+		context.waitTicks(20);
+		context.takeScreenshot("effects-settings-custom");
+		context.getInput().pressKey(InputConstants.KEY_ESCAPE);
+		context.waitForScreen(null);
+		context.waitTicks(5);
+
+		singleplayer.getServer().runCommand("kill @e[type=husk]");
+		singleplayer.getServer().runCommand("kill @e[type=item]");
+		context.runOnClient(client -> runtime.updateConfig(
+				settings -> settings.swords.get("minecraft:netherite_sword").effect = ""));
+		singleplayer.getServer().runCommand("time set noon");
+		context.waitTicks(20);
 	}
 }

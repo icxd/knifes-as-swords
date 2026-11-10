@@ -7,8 +7,11 @@
 		"ItemModelResolverMixin",
 		"ItemStackRenderStateAccessor",
 		"LayerRenderStateAccessor",
+		"LevelRendererMixin",
 		"LivingEntityMixin",
-		"MultiPlayerGameModeMixin"
+		"MouseHandlerMixin",
+		"MultiPlayerGameModeMixin",
+		"OverlayTextureAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1

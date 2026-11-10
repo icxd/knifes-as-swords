@@ -32,6 +32,11 @@ dependencies {
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
+	// Decodes MP3, which is what the knife sounds in the player's game files are. MIT licence;
+	// small enough to ship inside the mod's jar.
+	implementation "fr.delthas:javamp3:${project.javamp3_version}"
+	include "fr.delthas:javamp3:${project.javamp3_version}"
+
 	testImplementation platform("org.junit:junit-bom:${project.junit_version}")
 	testImplementation "org.junit.jupiter:junit-jupiter"
 	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
@@ -69,4 +74,6 @@ jar {
 	from("LICENSE") {
 		rename { "${it}_${archivesName.get()}" }
 	}
+	// The notices of what is shipped inside the jar have to travel with it.
+	from("THIRD_PARTY_LICENSES.md")
 }

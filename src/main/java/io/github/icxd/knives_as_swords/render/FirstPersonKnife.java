@@ -4,10 +4,15 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import io.github.icxd.knives_as_swords.KnifeRuntime;
 import io.github.icxd.knives_as_swords.KnivesAsSwordsClient;
+import io.github.icxd.knives_as_swords.fx.FxStyle;
+import io.github.icxd.knives_as_swords.fx.MotionFx;
+import io.github.icxd.knives_as_swords.fx.WeaponFx;
 import io.github.icxd.knives_as_swords.model.KnifeAnimations;
 import io.github.icxd.knives_as_swords.model.KnifeAnimations.Clip;
 import io.github.icxd.knives_as_swords.model.KnifeAnimations.Pose;
 import io.github.icxd.knives_as_swords.model.KnifeMesh;
+import io.github.icxd.knives_as_swords.visuals.Visuals;
+import io.github.icxd.knives_as_swords.visuals.combat.KnifeSounds;
 import java.util.List;
 import java.util.Random;
 import net.minecraft.client.Minecraft;
@@ -47,8 +52,16 @@ public final class FirstPersonKnife {
 	private static final long REDRAW_AFTER_NANOS = 250_000_000L;
 	/** Longest step the animation takes in one frame; anything longer was a hitch or a pause. */
 	private static final float MAX_FRAME_SECONDS = 0.1f;
+	/**
+	 * With effects on, a frame's worth of animation is taken in steps no longer than this, so that
+	 * the effects see where the blade went on its way and not only where it ended up.
+	 */
+	private static final float EFFECT_STEP_SECONDS = 1f / 120f;
+	private static final int MAX_EFFECT_STEPS = 8;
 
 	private static final Random RANDOM = new Random();
+	/** Trails, afterimages, sparks: everything that follows the knife's moves. */
+	private static final MotionFx EFFECTS = new MotionFx();
 
 	private static @Nullable KnifeVisual visual;
 	private static int slot = -1;
@@ -115,10 +128,21 @@ public final class FirstPersonKnife {
 			}
 			play(start, draw == null, false);
 			elapsed = 0f;
+			EFFECTS.begin(current);
+			if (draw != null) {
+				Visuals.get(KnifeSounds.class).drawn();
+			}
 		}
 
-		advance(animations, elapsed);
-		draw(current, arm, poseStack, submitNodeCollector, lightCoords, stack.hasFoil());
+		FxStyle effects = WeaponFx.styleFor(stack.getItem());
+		int steps = effects != null ? Math.clamp((int) Math.ceil(elapsed / EFFECT_STEP_SECONDS), 1, MAX_EFFECT_STEPS) : 1;
+		for (int i = 0; i < steps; i++) {
+			advance(animations, elapsed / steps);
+			if (pose != null) {
+				EFFECTS.step(current, effects, pose, elapsed / steps);
+			}
+		}
+		draw(current, effects, arm, poseStack, submitNodeCollector, lightCoords, stack.hasFoil());
 		return true;
 	}
 
@@ -141,6 +165,8 @@ public final class FirstPersonKnife {
 		if (!choices.isEmpty()) {
 			play(choices.get(attackCounter++ % choices.size()), false, true);
 		}
+		EFFECTS.swing(hits, heavy);
+		Visuals.get(KnifeSounds.class).swung(hits, heavy);
 	}
 
 	/**
@@ -169,10 +195,16 @@ public final class FirstPersonKnife {
 			// A few knives have more than one; start with the first and vary after that.
 			int index = inspectCounter++ == 0 ? 0 : RANDOM.nextInt(choices.size());
 			play(choices.get(index), false, true);
+			EFFECTS.inspect();
+			Visuals.get(KnifeSounds.class).inspected();
 		}
 	}
 
 	/** Whether the animated knife is what is on screen right now. */
+	public static boolean showing() {
+		return active();
+	}
+
 	private static boolean active() {
 		return System.nanoTime() - lastFrameNanos < REDRAW_AFTER_NANOS;
 	}
@@ -226,7 +258,7 @@ public final class FirstPersonKnife {
 		}
 	}
 
-	private static void draw(KnifeVisual current, HumanoidArm arm, PoseStack poseStack,
+	private static void draw(KnifeVisual current, @Nullable FxStyle effects, HumanoidArm arm, PoseStack poseStack,
 			SubmitNodeCollector submitNodeCollector, int lightCoords, boolean hasFoil) {
 		if (pose == null) {
 			return;
@@ -240,12 +272,24 @@ public final class FirstPersonKnife {
 		poseStack.rotateDegrees(Axis.YP, 180f);
 		poseStack.translate(-SHIFT_RIGHT, -SHIFT_DOWN, 0f);
 
+		if (effects != null) {
+			// The shift above moved the animations' space; the eye is where it ended up.
+			EFFECTS.submitLights(current, effects, poseStack, submitNodeCollector, true, SHIFT_RIGHT, SHIFT_DOWN, 0f);
+			EFFECTS.submitEchoes(current, effects, poseStack, submitNodeCollector, mirrored);
+		}
+
 		int singleJoint = mesh.singleJoint();
 		if (singleJoint >= 0) {
 			// The whole knife moves as one piece: let the matrix do the work.
+			poseStack.pushPose();
 			poseStack.mulPose(pose.matrix(singleJoint, SCRATCH));
 			KnifeItemRenderer.submit(current, mesh.positions(), mesh.normals(), poseStack, submitNodeCollector,
 					lightCoords, OverlayTexture.NO_OVERLAY, hasFoil, mirrored);
+			if (effects != null) {
+				EFFECTS.submitGlow(current, effects, mesh.positions(), mesh.normals(), poseStack,
+						submitNodeCollector, mirrored);
+			}
+			poseStack.popPose();
 		} else {
 			int joints = pose.jointCount();
 			if (jointMatrices.length != joints) {
@@ -265,6 +309,10 @@ public final class FirstPersonKnife {
 			mesh.skin(jointMatrices, skinnedPositions, skinnedNormals);
 			KnifeItemRenderer.submit(current, skinnedPositions, skinnedNormals, poseStack, submitNodeCollector,
 					lightCoords, OverlayTexture.NO_OVERLAY, hasFoil, mirrored);
+			if (effects != null) {
+				EFFECTS.submitGlow(current, effects, skinnedPositions, skinnedNormals, poseStack,
+						submitNodeCollector, mirrored);
+			}
 		}
 		poseStack.popPose();
 	}

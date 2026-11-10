@@ -2,10 +2,13 @@ package io.github.icxd.knives_as_swords.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import io.github.icxd.knives_as_swords.KnivesAsSwordsClient;
+import io.github.icxd.knives_as_swords.fx.FxStyle;
+import io.github.icxd.knives_as_swords.fx.ItemFx;
 import io.github.icxd.knives_as_swords.model.KnifeMesh;
 import java.util.function.Consumer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.special.SpecialModelRenderer;
+import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import org.joml.Vector3fc;
 import org.jspecify.annotations.Nullable;
@@ -14,18 +17,36 @@ import org.jspecify.annotations.Nullable;
  * Draws a knife wherever Minecraft draws an item: the special-model renderer that takes the
  * place of a sword's own layers.
  */
-public final class KnifeItemRenderer implements SpecialModelRenderer<KnifeVisual> {
+public final class KnifeItemRenderer implements SpecialModelRenderer<KnifeItemRenderer.Draw> {
 	public static final KnifeItemRenderer INSTANCE = new KnifeItemRenderer();
+
+	/**
+	 * One knife to draw, and what its effects need to know about where.
+	 *
+	 * @param effects the look of its effects; {@code null} for none
+	 * @param context how the item is shown
+	 * @param holder which entity's hand it is in, or 0 when that is unknown or does not matter
+	 * @param holderX where that entity is in the world this frame; likewise {@code holderY}, {@code holderZ}
+	 */
+	public record Draw(KnifeVisual visual, @Nullable FxStyle effects, ItemDisplayContext context, int holder,
+			double holderX, double holderY, double holderZ) {
+	}
 
 	private KnifeItemRenderer() {
 	}
 
 	@Override
-	public void submit(@Nullable KnifeVisual visual, PoseStack poseStack, SubmitNodeCollector submitNodeCollector,
+	public void submit(@Nullable Draw draw, PoseStack poseStack, SubmitNodeCollector submitNodeCollector,
 			int lightCoords, int overlayCoords, boolean hasFoil, int outlineColor) {
-		if (visual != null) {
-			submit(visual, visual.mesh().positions(), visual.mesh().normals(), poseStack, submitNodeCollector,
-					lightCoords, overlayCoords, hasFoil, false);
+		if (draw == null) {
+			return;
+		}
+		KnifeVisual visual = draw.visual();
+		submit(visual, visual.mesh().positions(), visual.mesh().normals(), poseStack, submitNodeCollector, lightCoords,
+				overlayCoords, hasFoil, false);
+		if (draw.effects() != null) {
+			ItemFx.submit(visual, draw.effects(), draw.context(), draw.holder(), draw.holderX(), draw.holderY(),
+					draw.holderZ(), poseStack, submitNodeCollector);
 		}
 	}
 
@@ -50,7 +71,9 @@ public final class KnifeItemRenderer implements SpecialModelRenderer<KnifeVisual
 	}
 
 	@Override
-	public @Nullable KnifeVisual extractArgument(ItemStack stack) {
-		return KnifeReplacement.visualFor(stack);
+	public @Nullable Draw extractArgument(ItemStack stack) {
+		// Not how knives get here (see KnifeReplacement), but the interface asks for an answer.
+		KnifeVisual visual = KnifeReplacement.visualFor(stack);
+		return visual != null ? new Draw(visual, null, ItemDisplayContext.NONE, 0, 0.0, 0.0, 0.0) : null;
 	}
 }

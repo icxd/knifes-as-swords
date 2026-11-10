@@ -1,11 +1,17 @@
-# Project: CS2 knives in Minecraft (client mod)
+# Project: a client-side visuals mod for Minecraft (knives, effects, HUD)
 
 ## Goal
-A purely client-side Fabric mod that visually replaces Minecraft's vanilla swords with
-Counter-Strike 2 knives (models, skins/finishes, animations), using ONLY files from the
-player's own local CS2 install. The mod ships code only.
+A purely client-side Fabric mod of visuals: the kind of eye candy cheat clients are known
+for, without any of the cheating. Every visual is a module the player switches on and off in
+a client-style click menu.
 
-The player picks, in game, per sword: knife model, skin (finish), pattern (seed) and wear.
+Its first and biggest part visually replaces Minecraft's vanilla swords with
+Counter-Strike 2 knives (models, skins/finishes, animations), using ONLY files from the
+player's own local CS2 install. Everything else (effects, cosmetics, HUD widgets) is the
+mod's own and uses no game files at all. The mod ships code only.
+
+The player picks, in game, per sword: knife model, skin (finish), pattern (seed), wear, and
+the look of the knife's effects.
 
 ## Hard rules (non-negotiable)
 - **Never commit, bundle, download-host or distribute any Valve asset** (models,
@@ -19,6 +25,25 @@ The player picks, in game, per sword: knife model, skin (finish), pattern (seed)
   access would be commercial use of Valve IP).
 - No "CS:GO" / "Counter-Strike" branding in the mod name, server name or store pages.
 
+### Fair play (just as non-negotiable)
+The mod must be safe to use on any server. The test for every visual: **it may only restyle
+or decorate what the game already shows the player.**
+- **Never reveal what is hidden.** Nothing is drawn through walls. No outlines, tracers,
+  X-ray or finders for players, mobs, chests or ores. Nothing about entities that are out of
+  sight, out of range or invisible. A visual attached to an entity is depth-tested like the
+  entity itself.
+- **Never predict.** No trajectories, no paths, no timers for things the game does not time
+  on screen.
+- **Never remove an impairment.** Dark stays dark (no full brightness, no forced daylight),
+  fog may be tinted but not thinned, blindness, nausea and the hurt shake stay.
+- **Never change what the player can do or what is sent to the server.** No reach, timing,
+  movement or input automation. Mixins only read, as before.
+- **Information the vanilla screen does not show** (the health of what you are fighting,
+  damage numbers) is allowed only as its own visual that is off by default, says so in the
+  menu (`Visual.showsInformation`), and only ever concerns an entity in plain sight: in line
+  of sight and not invisible. Some servers do not allow even that; the menu says so.
+- When in doubt, leave it out.
+
 Context: this sits in a tolerated gray zone, not "legal". Steam's Subscriber Agreement
 prohibits reverse engineering/extracting content without Valve's consent; Valve
 tolerates it in practice (Source 2 Viewer is on the Valve Developer Community wiki).
@@ -30,15 +55,39 @@ Nov 2026): locating the game, converting models, drawing knives everywhere a swo
 drawn, first-person animations, the settings screen, and finishes with pattern and wear.
 
 On top of the milestones: knives are drawn with their own shader, so metal reflects
-(`shine` in the config), and pattern seeds place patterns as in the game.
+(`shine` in the config), pattern seeds place patterns as in the game, and knives have effects
+(trails, afterimages, bolts, sparks, glow) from the mod's own effects engine.
+
+Since then the mod is growing into a general visuals mod (see Goal and Fair play). There is a
+framework for visuals with a client-style click menu (Right Shift), and a first set of them:
+- Combat: hit effects, kill effects (burst, pillar, bolts, souls), damage numbers (information),
+  and the knife's own sounds from the game files.
+- Player: trail, jump rings, halo (halo, hat, wisps).
+- World: crosshair, block outline, sky and fog tint, hurt colour.
+- HUD: keystrokes, CPS, FPS, armour, effects, target HUD (information).
+
+All of the mod's menus and HUD panels share one look of their own, made to go with the effects:
+dark glass, light in the colours of whatever is being set up (see "The look of the menus").
 
 Not done, in rough order of value:
 - **Real surroundings in the reflections.** The shader mirrors an imagined room (bright
   above, dark below), not the Minecraft world, and has no normal maps or pearlescence.
 - **Seed parity is checked with one seed only** (Case Hardened 387 on the karambit, against
   a picture from the game). Where wear scratches and dirt sit for a seed is still a guess.
-- Per-item overrides (e.g. by a sword's custom name), Mod Menu entry, sounds, names in
+- **Effects for what other players do.** Their knives glow, crackle and leave trails when
+  swung, because that can be seen; their hits throw no sparks, because the client is not told
+  about them in time. Glow is faked with soft additive shapes; there is no bloom pass.
+- **Sounds that fit each knife and each animation.** The knife sounds played are the ones all
+  knives share, started by the same events as the effects (draw, swing, hit, inspect). The game
+  itself starts sounds from inside its animations and has own sounds for some knives
+  (`sounds/weapons/knife_<name>/`); neither is used. Other players' knives are silent.
+- More visuals: enchantment glint colour (there is no uniform for it; the texture has to be
+  swapped), view model tweaks, cosmetics on other players.
+- The mod's name and id still say "knives".
+- Per-item overrides (e.g. by a sword's custom name), Mod Menu entry, names in
   languages other than English, arms in first person.
+- The prompt that asks before downloading the converter is the game's own `ConfirmScreen` and
+  looks like it; tooltips are the game's too.
 
 ## Architecture
 - **Client-side only Fabric mod** (Minecraft Java). No server component, no server
@@ -52,7 +101,8 @@ Packages under `io.github.icxd.knives_as_swords`:
   the package), KeyValues/KV3 readers, `KnifeModel`, `FinishCatalog` (which finish exists
   for which knife, and display names, from `items_game.txt` + `csgo_english.txt`).
 - `extract`: everything that runs Source2Viewer-CLI. `KnifeExporter` (model, bone names,
-  animation clips), `ResourceDumper` (material settings as text, textures as PNG/EXR).
+  animation clips), `ResourceDumper` (material settings as text, textures as PNG/EXR),
+  `SoundExporter` (the knife sounds as MP3).
 - `gltf`, `model`: reading what the extractor wrote. `KnifeMesh`, `KnifeAnimations`.
 - `finish`: painting a finish onto a knife, pure Java. `FinishPainter` gathers settings and
   textures, `FinishCompositor` does the per-pixel work and returns two images: colour, and a
@@ -60,7 +110,28 @@ Packages under `io.github.icxd.knives_as_swords`:
 - `render`: `KnifeVisuals` (loaded/loading knives, keyed by `Appearance`), `KnifeReplacement`
   and `KnifeItemRenderer` (item layer swap), `FirstPersonKnife` (animated first person),
   `KnifePipelines` (the render pipeline and render types for the knife shader).
-- `screen`: `KnivesScreen` and its turnable preview.
+- `fx`: the effects engine. It is the mod's own from top to bottom: no textures, nothing from
+  the game files. The logic is plain Java without Minecraft classes and unit-tested: `FxBatch`
+  (a list of glowing quads: ribbon, beam, ring, dot), `BladeShape` (where a mesh's blade is),
+  `BladeTrail`, `SparkSystem`, `ArcBolts` (no state: a function of time and a seed),
+  `Gradient`, `FxStyle` (the looks), `CustomEffect` (a look of the player's own, as the config
+  holds it). The Minecraft side: `FxPipelines`, `FxDraw`, `MotionFx` (one knife whose every
+  move is known), `PreviewFx`, `ItemFx`, `WorldFx`, and `WeaponFx` as the way in.
+- `sound`: the knife sounds. `KnifeSound` (the moments that have one, and which files are
+  takes of each), `Pcm` (a decoded sound; MP3 decoding), `PcmStream` (what Minecraft's sound
+  engine reads from), `KnifeAudio` (loading on the worker thread, playing).
+- `visuals`: everything that is not a knife. `Visual` is one thing the player can switch on
+  and off, with `Setting`s (toggle, slider, choice, colour, colours, action) declared as
+  fields; `Visuals` is the list and hands the game's moments on (tick, attack, world, HUD);
+  `AllVisuals` registers them and holds the few extra hooks. Sub-packages `combat`, `player`,
+  `world`, `hud` (`HudWidget`: a panel the player drags to its place).
+- `screen`: `KnivesScreen` and its turnable preview; `EffectScreen`, the editor for a look of
+  one's own; `ClickMenuScreen`, the menu for all visuals; `GradientScreen` and
+  `GradientEditor`, the colour controls they share.
+- `ui`: the look all of the above share. `UiPipelines` and `Glow` (shapes: glass, light, round
+  corners), `Theme` (colours), `Ease` (numbers that glide), `Embers` and `Backdrop` (what lies
+  behind a menu), and widgets that behave like the game's and are drawn with `Glow`:
+  `GlowButton`, `GlowCycle`, `GlowSwitch`, `GlowSlider`, `GlowEditBox`.
 - `mixin`: the hooks listed below.
 
 `KnifeRuntime` owns the state and one worker thread for all file/process work; the client
@@ -90,10 +161,123 @@ thread only ever sees finished, immutable results.
   projection flips back. Flip only for a mirror the mod adds itself (left-handed first person).
 - Textures are `KnifeTexture`: mipmapped and linearly filtered, unlike `DynamicTexture`.
 
+### Effects
+- Each sword has a look (`FxStyle`: a `Gradient` of colours, running from fresh to fading, and
+  how much of each effect). In the config a sword's `effect` is a ready-made look's name,
+  `none`, `custom`, or empty for the default of that sword (`WeaponFx.BY_SWORD`);
+  `effects: false` turns everything off.
+- `custom` means the sword's `customEffect` (`CustomEffect`): an amount for trail, afterimages,
+  bolts, sparks, glow, white heat and raggedness, what sparks do (-1 fall to 1 rise), how fast
+  the colours cycle, and the gradient as a list of `{at, color}`. `EffectScreen` edits it:
+  sliders, a gradient bar with a marker per colour (click the bar to add, drag to move,
+  right-click to remove), hue/saturation/brightness sliders and a `#RRGGBB` box for the picked
+  colour. It works on a copy and saves a few ticks after the last change, never during a drag.
+  Its preview is a knife that slashes by itself (`PreviewFx`), because most effects only show
+  in motion.
+- Everything is light added on top of the picture, through two pipelines of the mod's own
+  (`FxPipelines`), both depth-tested without writing depth. "Energy" draws the quads of an
+  `FxBatch`; the vertex slot for a normal carries the shape (ribbon, beam, ring, dot), how
+  white-hot and how ragged instead, and `fx_energy.fsh` turns that into soft-edged light.
+  "Ghost" draws the knife's own triangles as a shell that is bright at the outline
+  (`fx_ghost.fsh`): the glow on the knife, and its afterimages.
+- `MotionFx` is the effects of one knife whose every move is known. `FirstPersonKnife` has one
+  and `PreviewFx` another. In first person it works in the animations' space, where the eye
+  sits at (`SHIFT_RIGHT`, `SHIFT_DOWN`, 0). With effects on, `FirstPersonKnife` takes each frame's
+  animation in steps of at most 1/120 s and reports the pose after each, so a slash is followed
+  along its way. Tip speed drives everything: trail, afterimages, shed sparks, how much the
+  blade crackles. Events add to it: drawing the knife, a swing, a hit landing (sparks and a
+  ring of light from the tip, a moment after the swing starts), inspecting.
+- Knives drawn as items (`ItemFx`) glow and crackle, with no state at all. The special-model
+  argument is a `KnifeItemRenderer.Draw`, which says how and in whose hand the knife is drawn.
+- Trails in the world (`WorldFx`): `LevelRendererMixin` marks the start of
+  `LevelRenderer.submitFeatures`; a knife drawn between then and Fabric's `COLLECT_SUBMITS` is
+  in the world, any other is in a menu and gets no effects (first-person contexts excepted).
+  A held knife's blade is followed relative to its holder's position in that frame, so walking
+  leaves no trail and swinging does. Trails and the sparks of a hit seen from outside are
+  submitted in `COLLECT_SUBMITS`, in world axes relative to the camera.
+- Inventory slots (`ItemDisplayContext.GUI`) never get effects: they are cached pictures.
+
+### Visuals
+- A visual is a subclass of `Visual` with its settings as fields (`toggle(...)`,
+  `slider(...)`, `choice(...)`, `color(...)`, `colors(...)`, `action(...)`), overriding the
+  moments it cares about: `tick`, `attack`, `world(WorldFrame)`, `hud(graphics, editing)`.
+  They are only called while it is on. Add it in `AllVisuals.register()` and give it texts
+  under `knives_as_swords.visual.<id>` (name), `.about`, `.<setting>` and, for choices,
+  `.<setting>.<option>`. **Check it against the fair-play rules first.**
+- Saving: `config.visuals` maps a visual's id to its settings as text plus `enabled`. A
+  setting reads back what it wrote and ignores what it cannot understand. `Visuals.changed()`
+  saves a few ticks after the last change.
+- Light in the world goes through `WorldFx.paint`: every frame after the world has gathered
+  what to draw, each visual gets a `WorldFrame` (the shared `FxBatch`, camera position, time)
+  and adds shapes in world axes relative to the camera. It is depth-tested like everything
+  else, so nothing shows through walls. `WorldSparks` and `WorldPulses` (flash, ring, ground
+  ring, beam) are there to be reused; `WorldFrame.text` writes a short text facing the camera.
+- `HudWidget`s draw at the origin and say how big they are; the base class places and scales
+  them and lets the menu drag them. Their place is saved as a share of the room on screen (less
+  a margin, so the plate behind them fits). The plate is `Glow.plate`: thin dark glass with a
+  line of light in the widget's own `glow` colours, which `glowColor(along)` hands out.
+- Hooks beyond the common moments (all in `AllVisuals`): the crosshair replaces Fabric's
+  `VanillaHudElements.CROSSHAIR` element (and hands back to it where the game has rules of its
+  own: third person, spectators); the block outline listens to `BEFORE_BLOCK_OUTLINE` and
+  cancels the game's; sky and fog are recoloured in `LevelExtractionEvents.END_EXTRACTION`
+  (same brightness, same fog distance, and not at all in fog that is there to hinder); the
+  hurt colour repaints the upper half of the game's 16x16 overlay texture
+  (`OverlayTextureAccessor`) and restores it when switched off; clicks are counted by
+  `MouseHandlerMixin` (reads only).
+- Visuals that show information the game does not (`showsInformation()`): `TargetHud`,
+  `DamageNumbers`. Off at first, marked "!" in the menu, and only about what the crosshair is
+  on or what the player just hit, while it is in line of sight and not invisible.
+- The menu (`ClickMenuScreen`) is drawn by hand, not with widgets: a layout pass turns panels
+  into rows, and the same rows are used for drawing and for the mouse. Left-click toggles,
+  right-click unfolds settings, titles drag, the wheel moves a panel. It keeps the world in
+  view (no blur) so changes show at once. The knives are an entry in it (`Knives`) whose
+  switch is `config.enabled`. Folding glides: everything is laid out at full size and each row
+  carries the range of heights it is shown in so far (drawing is clipped to it, and so is the
+  mouse). `config.menu.layout` says which panel sizes the saved places were made for; places
+  made for other sizes are laid out afresh.
+
+### The look of the menus
+- Everything is drawn through `Glow`, never with the game's sprites: `fill`/`rounded`/`disc`
+  cover what is behind them, `light`/`dot`/`halo` add to it as the effects in the world do, and
+  `pane`, `plate`, `button`, `slider`, `bar`, `text` are made of those. Coordinates are floats.
+- Underneath are two pipelines (`UiPipelines`: translucent and additive) with one shader,
+  `ui_glow.fsh`. A quad's texture coordinates say what it is: around 0 a plain rectangle, around
+  11 a soft light (brightest where the coordinates are exactly 11, gone one unit away), around
+  21 a hard-edged disc of radius one. A round corner is a quarter of such a disc, a halo is
+  soft-light quads whose "middle" lies on the edge they spill from.
+- A `pane`'s rim is a slightly larger rounded rectangle under its body, so it also tints a
+  see-through body. For thin glass use `plate` (a line of light instead of a rim).
+- Colours: `Theme.colors(category)` for the menu's panels; a screen about one sword takes the
+  gradient of that sword's effects, the effect editor the gradient being edited. `Theme.now`
+  lets a light wander slowly back and forth through its gradient.
+- Motion: `Ease.frame()` once per frame drawn (each screen's `extractRenderState`), then
+  `Ease.toward(key, target, rate)` for numbers kept by key (the click menu, forgotten when it
+  closes) or `Ease.step(value, target, rate, Ease.seconds())` for a number a widget keeps itself.
+- Screens draw `Backdrop` in `extractBackground` (after `extractBlurredBackground`), their
+  widgets are the `Glow*` classes, and lists override the four `extract...` hooks.
+
+### Sounds
+- `SoundExporter` converts the folder `sounds/weapons/knife/` in one call (the trailing slash
+  keeps `knife_bowie/` and the like out) into `cache/<buildid>/sounds/`; a `converted` file
+  written last marks a finished conversion.
+- `KnifeAudio.prepare` (from the `KnifeSounds` visual's tick) loads them once per scan on the
+  worker thread: every file whose name is a moment's prefix plus a number is decoded and kept
+  in memory. It never triggers the converter's download prompt.
+- Playing goes through Minecraft's own sound engine, so its volume sliders apply (kind
+  "players"): the mod's `sounds.json` declares one sound, `knives_as_swords:knife`, whose only
+  entry is Fabric's placeholder (`fabric-sound-api-v1:empty`, `"stream": true`); a
+  `SoundInstance` then overrides `getAudioStream` (Fabric adds that method to the interface)
+  and returns a `PcmStream`. The stream hands out a direct `ByteBuffer` and returns `null`
+  when it is over.
+- The sounds are heard at the listener, not from a place in the world, and only with the
+  knife's first-person animations. Minecraft's own attack sounds still play.
+
 ### In-game configuration
-`K` opens `KnivesScreen`, `G` inspects (both rebindable, category "Knives as Swords").
+Right Shift opens the menu for all visuals, `K` opens `KnivesScreen`, `G` inspects (all
+rebindable, category "Knives as Swords").
 Per sword: knife, finish, pattern seed (0-1000), wear (limited to what the finish allows,
-with its grade name), and "as knife"; for everything: animations and shine. Changes apply
+with its grade name), effect (with a "..." button into the editor for a look of one's own),
+and "as knife"; for everything: animations and shine. Changes apply
 and save immediately (`config/knives_as_swords.json`), except that a slider applies when the
 mouse lets go of it (keyboard steps: after a short rest), because every new look has to be
 painted first. The preview shows what is applied, so dragging a slider starts nothing. `/knives`, `/knives list|rescan|export <knife>`
@@ -109,7 +293,7 @@ remain as troubleshooting aids.
   are in `game/csgo/pak01_dir.vpk`. `cs2Dir` in the config overrides the search.
 - Cache is keyed by CS2 build id; other builds are pruned on scan. Layout under
   `<game dir>/knives_as_swords/`: `tools/`, `cache/<buildid>/{models,animations}/<knife>/`,
-  `cache/<buildid>/{data,textures}/<path inside the package>`.
+  `cache/<buildid>/{data,textures,sounds}/<path inside the package>`.
 - The VPK *index* and plain text files are read in Java; everything compiled goes through
   the CLI.
 
@@ -176,6 +360,21 @@ remain as troubleshooting aids.
 - Texture colour spaces: colour, AO and grunge are sRGB; masks, wear, surface and position
   linear; the pattern is linear for styles 1, 2, 4, 5 (it holds masks) and sRGB for 6-8.
 
+### Sounds
+- Knife sounds are `sounds/weapons/knife/*.vsnd_c` (223 shared by all knives, 349
+  counting the folders of single knives). The extractor writes each as `.mp3` plus a small
+  `.vsnd` text file. Names are `<what>_<take>.mp3`: `knife_draw_med_clean_01..07`,
+  `knife_swish_light_*`, `knife_swish_heavy_*`, `knife_hit_light_flesh_*`,
+  `heavy_hit_flesh_*`, `knife_inspect_turn_*`, and many more that are not used.
+- They are MPEG-1 Layer III, 44.1 kHz stereo, variable bitrate, and begin with a frame of
+  bookkeeping (Xing/LAME) that decodes to silence, followed by the encoder's padding.
+  `Pcm.withoutLead` cuts that off, or every sound would start about 50 ms late.
+- Minecraft plays Ogg Vorbis only. The decoder is JavaMP3 (`fr.delthas:javamp3` 1.0.1, MIT),
+  shipped inside the mod's jar (`include` in `build.gradle`; its notice is in
+  `THIRD_PARTY_LICENSES.md`, which goes into the jar too). **Its `decodeFullyInto` stops after
+  the first frame**; read the `Sound` as a stream until it ends instead. On input that is not
+  MP3 it throws an `IOException` at once.
+
 ### Source2Viewer-CLI 20.1 (go by its own `--help`; the website documents unreleased options)
 - glTF export needs `--vpk_decompile` as well as `--gltf_export_format`. One call exports
   all 22 models in ~15 s, all 317 knife clips in ~8 s.
@@ -204,6 +403,78 @@ remain as troubleshooting aids.
   the uniform blocks (there is a Vulkan backend too). Entity normals and light directions
   share one space; get the eye into it with `transpose(mat3(ModelViewMat))`.
 - MixinExtras ships with the loader (`@WrapMethod` is used here).
+- **A render type that blends needs a second set of pipelines.** With the video setting
+  "improved transparency" on, see-through things in the world are drawn in three stages
+  through an `OitPipelineSet` (`RenderSetup.setOitPipelines`); a blending `RenderType` without
+  one makes `PreparedRenderType.drawFromBufferOit` throw. Build it with
+  `OitPipelineSet.builder(suffix, RenderPipeline.builder(snippet).withShaderDefine("OIT_ADDITIVE"))`
+  and register it with `RenderPipelines.register`. The fragment shader has to play along; copy
+  the pattern of `rendertype_lightning.fsh` (`#include <minecraft:oit.glsl>`, `fragColor` only
+  declared `#ifndef OIT_ALPHA_ONLY`, `executeAlphaOnlyPhase` / `sampleColorForAccumulation`).
+  The first-person hand and menus always blend the classic way.
+- A picture-in-picture (the settings preview) is drawn into a texture that is then pasted onto
+  the screen with premultiplied alpha, and its pixels with alpha exactly 0 are thrown away.
+  Light added into it therefore has to add alpha as well, and not squared as
+  `BlendFunction.LIGHTNING` does it (faint light rounds to 0 and every glow gets a hard edge);
+  hence `FxPipelines.ADD_LIGHT`.
+- `submitCustomGeometry` with a blending render type lands in the translucent phase: drawn
+  after everything solid, in the order submitted.
+- `LevelRenderer.render` gathers entities first of all (`submitFeatures`), before any render
+  pass. Fabric's `LevelRenderEvents.COLLECT_SUBMITS` fires at its end; its pose stack is the
+  identity, meaning world axes with the camera at the origin (`cameraRenderState.pos`).
+- Vertex attributes get their shader locations in the order of the vertex format
+  (`POSITION_TEX_COLOR_NORMAL`: 0 position, 1 UV0, 2 colour, 3 normal). A normal is stored as
+  three signed bytes exactly as given, not normalized. A pipeline of one's own may draw
+  `PrimitiveTopology.TRIANGLES`; no doubled corners needed there.
+- Minecraft's own shaders are in the game jar under `assets/minecraft/shaders/`, including the
+  `include/*.glsl` files; read them there.
+- The heads-up display is `net.minecraft.client.gui.Hud` (`minecraft.gui.hud`); `Gui` manages
+  screens: `minecraft.gui.screen()`, `minecraft.gui.setScreen(...)`. Fabric's
+  `HudElementRegistry` adds (`addLast`), removes and replaces (`replaceElement`) elements; a
+  `HudElement` is `(GuiGraphicsExtractor, DeltaTracker) -> void`. Everything is hidden with F1.
+- Drawing in two dimensions: `graphics.pose()` is a JOML `Matrix3x2fStack` (`pushMatrix`,
+  `translate(x, y)`, `scale(x, y)`, `popMatrix`); there is no depth, later things are put on
+  top with `graphics.nextStratum()`. `graphics.text` draws nothing if the colour's alpha is 0:
+  always pass `0xFF......`. Items: `graphics.item(stack, x, y)`; sprites of the GUI atlas:
+  `graphics.blitSprite(RenderPipelines.GUI_TEXTURED, id, x, y, w, h)`.
+- A screen without the blurred background overrides `extractBackground` (there is no
+  `renderBackground`). `mouseScrolled(x, y, scrollX, scrollY)`; `keyPressed(KeyEvent)`.
+- The fog colour of a frame is `cameraRenderState.fogData.color` (a `Vector4f`), the sky
+  colour `skyRenderState.skyColor` (a `Vector3fc`); both are set during extraction and can be
+  changed in Fabric's `LevelExtractionEvents.END_EXTRACTION` without a mixin.
+- Health of other entities is synced to the client (`LivingEntity.getHealth()`); damage comes
+  as its own packet (`handleDamageEvent`), death as entity event 3. There is no entity event
+  for "hurt" any more.
+- Text in the world: `collector.submitText(poseStack, x, y, text, shadow, Font.DisplayMode,
+  light, color, background, outline)`, after `poseStack.rotate(camera.orientation)` and a
+  scale of 0.025 with y flipped. `cameraRenderState.projectionMatrix` lacks view bobbing, so
+  projecting world points onto the HUD by hand would wobble against the world.
+- The enchantment glint has no colour uniform (`GlintAlpha` is strength only); recolouring it
+  means registering another texture under its identifier.
+- A shape of one's own in a GUI: implement `GuiElementRenderState` (`buildVertices`,
+  `pipeline`, `textureSetup` = `TextureSetup.noTexture()`, `scissorArea`, `bounds`) and hand it
+  to `graphics.guiRenderState.addGuiElement`; take the pose as `new Matrix3x2f(graphics.pose())`
+  and the scissor from `graphics.scissorStack.peek()`. **The bounds decide what lies on top of
+  what** within a stratum, so they have to be right (and cut to the scissor). The pipeline is
+  built from `GLOBALS_SNIPPET` plus `BindGroupLayouts.PROJECTION` and `DYNAMIC_TRANSFORMS`, with
+  `POSITION_TEX_COLOR` quads and no depth state; vertices go in with
+  `addVertexWith2DPose(pose, x, y).setUv(u, v).setColor(argb)`. `fwidth` works there.
+- Skinning the game's widgets: a button is `AbstractButton.extractContents` (its
+  `extractWidgetRenderState` is final); `Button` and `CycleButton` cannot be subclassed
+  usefully, so the mod has its own on `AbstractButton`. A slider's
+  `AbstractSliderButton.extractWidgetRenderState` can be overridden (call `handleCursor`); its
+  handle's middle is at `x + 4 + value * (width - 8)`. A list has `extractListBackground`,
+  `extractListSeparators`, `extractSelection`, `extractScrollbar`; **its `scrollBarX()` is
+  `getRowRight() + 8`, which lies outside a narrow list**, so override that and `getRowLeft()`.
+  An `EditBox` draws its frame only if `isBordered()` says so but places its text by the field
+  behind it, so overriding `isBordered()` during the draw swaps the frame and nothing else.
+- `Screen.extractBackground` is: panorama if there is no world, `extractBlurredBackground`,
+  the menu background texture, then `minecraft.gui.hud.extractDeferredSubtitles()`. A screen
+  with a background of its own keeps the first, second and last.
+- Input is SDL3: key codes are scancodes (`InputConstants.KEY_*`, e.g. `KEY_RSHIFT` 229), and
+  mouse buttons are numbered left 1, middle 2, right 3 (`InputConstants.MOUSE_BUTTON_*`). A widget of one's own extends `AbstractWidget`
+  (`extractWidgetRenderState`, `onClick`, `onDrag`, `onRelease`); it only hears about the left
+  button unless `isValidClickButton` says otherwise, and only the left button drags.
 
 ## Environment
 - I develop on Windows. CS2 is installed (Steam library on `D:`).
@@ -217,9 +488,12 @@ remain as troubleshooting aids.
 - `./gradlew runClientGameTest` runs the in-game smoke test in `src/gametest` against a
   made-up game folder. With `KNIVES_VISUAL_EXTRACTOR=<path to Source2Viewer-CLI>` set it
   also runs `KnivesVisualGameTest` against the real game: every sword, animations, finishes,
-  the settings screen. Screenshots land in `build/run/clientGameTest/screenshots`; they
-  show game content and stay there. The run folder is wiped each time, so everything is
-  converted afresh (about two minutes in all).
+  the settings screen, effects. Screenshots land in `build/run/clientGameTest/screenshots`;
+  they show game content and stay there. The run folder is wiped each time, so everything is
+  converted afresh (about three minutes in all). `KNIVES_VISUAL_ONLY=effects` runs only the
+  part about the knives' effects, `KNIVES_VISUAL_ONLY=visuals` only the part about the other
+  visuals, their menu and the colour screen, `KNIVES_VISUAL_ONLY=sounds` only the check that the knife sounds load
+  and are handed to the sound engine.
 - The dev client (`./gradlew runClient`) keeps its extractor and cache in
   `run/knives_as_swords/` (ignored).
 - Do not `cd` into `build/run/...` in a shell that outlives the command: Gradle cannot

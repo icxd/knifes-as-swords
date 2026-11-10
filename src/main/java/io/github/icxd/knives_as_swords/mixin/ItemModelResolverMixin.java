@@ -27,6 +27,6 @@ abstract class ItemModelResolverMixin {
 		}
 		int firstLayer = ((ItemStackRenderStateAccessor) output).knives$getActiveLayerCount();
 		original.call(output, item, displayContext, level, owner, seed);
-		KnifeReplacement.replaceLayers(output, firstLayer, item, displayContext);
+		KnifeReplacement.replaceLayers(output, firstLayer, item, displayContext, owner);
 	}
 }

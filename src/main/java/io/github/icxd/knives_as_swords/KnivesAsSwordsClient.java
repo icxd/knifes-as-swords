@@ -1,11 +1,17 @@
 package io.github.icxd.knives_as_swords;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import io.github.icxd.knives_as_swords.fx.WeaponFx;
+import io.github.icxd.knives_as_swords.fx.WorldFx;
 import io.github.icxd.knives_as_swords.render.FirstPersonKnife;
 import io.github.icxd.knives_as_swords.render.KnifePipelines;
 import io.github.icxd.knives_as_swords.render.KnifeVisuals;
+import io.github.icxd.knives_as_swords.screen.ClickMenuScreen;
 import io.github.icxd.knives_as_swords.screen.KnifePreviewRenderer;
 import io.github.icxd.knives_as_swords.screen.KnivesScreen;
+import io.github.icxd.knives_as_swords.ui.UiPipelines;
+import io.github.icxd.knives_as_swords.visuals.AllVisuals;
+import io.github.icxd.knives_as_swords.visuals.Visuals;
 import java.nio.file.Path;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
@@ -59,12 +65,18 @@ public final class KnivesAsSwordsClient implements ClientModInitializer {
 				new KeyMapping("key." + MOD_ID + ".inspect", InputConstants.KEY_G, category));
 		KeyMapping settingsKey = KeyMappingHelper.registerKeyMapping(
 				new KeyMapping("key." + MOD_ID + ".settings", InputConstants.KEY_K, category));
+		KeyMapping menuKey = KeyMappingHelper.registerKeyMapping(
+				new KeyMapping("key." + MOD_ID + ".menu", InputConstants.KEY_RSHIFT, category));
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			Visuals.tick(client);
 			while (inspectKey.consumeClick()) {
 				FirstPersonKnife.inspect();
 			}
 			while (settingsKey.consumeClick()) {
 				client.gui.setScreen(new KnivesScreen(null));
+			}
+			while (menuKey.consumeClick()) {
+				client.gui.setScreen(new ClickMenuScreen(null));
 			}
 		});
 
@@ -85,6 +97,13 @@ public final class KnivesAsSwordsClient implements ClientModInitializer {
 
 		// The shader knives are drawn with has to be known before the game compiles its shaders.
 		KnifePipelines.init();
+		WeaponFx.init();
+		UiPipelines.init();
+
+		// Everything else the mod draws: each a visual of its own, switched on and off in the menu.
+		AllVisuals.register();
+		Visuals.load(runtime);
+		WorldFx.paint(Visuals::world);
 
 		// The turnable knife in the settings screen.
 		PictureInPictureRendererRegistry.register(context -> new KnifePreviewRenderer());

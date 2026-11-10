@@ -2,15 +2,21 @@ package io.github.icxd.knives_as_swords.render;
 
 import io.github.icxd.knives_as_swords.KnifeRuntime;
 import io.github.icxd.knives_as_swords.KnivesAsSwordsClient;
+import io.github.icxd.knives_as_swords.fx.FxStyle;
+import io.github.icxd.knives_as_swords.fx.WeaponFx;
 import io.github.icxd.knives_as_swords.mixin.ItemStackRenderStateAccessor;
 import io.github.icxd.knives_as_swords.mixin.LayerRenderStateAccessor;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.item.ItemStackRenderState;
 import net.minecraft.client.resources.model.cuboid.ItemTransform;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.tags.ItemTags;
+import net.minecraft.world.entity.ItemOwner;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -47,9 +53,11 @@ public final class KnifeReplacement {
 	 * Replaces the layers that vanilla just appended for a sword (those from {@code firstLayer}
 	 * on) with a single knife layer. The sword's own item transform is kept, so the knife ends up
 	 * wherever this resource pack puts a sword in the given context.
+	 *
+	 * @param owner who the item belongs to, if anybody; only read
 	 */
 	public static void replaceLayers(ItemStackRenderState output, int firstLayer, ItemStack stack,
-			ItemDisplayContext context) {
+			ItemDisplayContext context, @Nullable ItemOwner owner) {
 		ItemStackRenderStateAccessor state = (ItemStackRenderStateAccessor) output;
 		int layerCount = state.knives$getActiveLayerCount();
 		if (layerCount <= firstLayer) {
@@ -67,8 +75,23 @@ public final class KnifeReplacement {
 		}
 		state.knives$setActiveLayerCount(firstLayer);
 
+		// Inventory slots are drawn once and kept as pictures; effects are for knives that are really there.
+		FxStyle effects = context == ItemDisplayContext.GUI ? null : WeaponFx.styleFor(stack.getItem());
+		int holder = 0;
+		Vec3 holderAt = Vec3.ZERO;
+		if (effects != null && owner != null && (context == ItemDisplayContext.THIRD_PERSON_LEFT_HAND
+				|| context == ItemDisplayContext.THIRD_PERSON_RIGHT_HAND)) {
+			LivingEntity entity = owner.asLivingEntity();
+			if (entity != null) {
+				// Where the holder is drawn this frame: a swung blade is followed relative to that.
+				holder = entity.getId();
+				holderAt = entity.getPosition(Minecraft.getInstance().getDeltaTracker().getGameTimeDeltaPartialTick(false));
+			}
+		}
+
 		ItemStackRenderState.LayerRenderState layer = output.newLayer();
-		layer.setupSpecialModel(KnifeItemRenderer.INSTANCE, visual);
+		layer.setupSpecialModel(KnifeItemRenderer.INSTANCE,
+				new KnifeItemRenderer.Draw(visual, effects, context, holder, holderAt.x, holderAt.y, holderAt.z));
 		layer.setItemTransform(swordTransform);
 		layer.setLocalTransform(visual.cubeTransform(context));
 		layer.setExtents(visual::extents);
