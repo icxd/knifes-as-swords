@@ -1,0 +1,43 @@
+# gradle
+.gradle/
+build/
+out/
+classes/
+
+# eclipse
+*.launch
+
+# idea
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# vscode
+.settings/
+.vscode/
+bin/
+.classpath
+.project
+
+# macos
+*.DS_Store
+
+# fabric (the dev game dir; also holds the mod's local cache and downloaded extractor)
+run/
+
+# java
+hs_err_*.log
+replay_*.log
+*.hprof
+*.jfr
+
+# Never commit anything extracted or converted from the game (see CLAUDE.md, hard rules).
+# The mod's own cache lives in the game dir (run/knives_as_swords), which is ignored above.
+*.vpk
+*.vmdl_c
+*.vmat_c
+*.vtex_c
+*.vnmclip_c
+*.glb
+*.gltf

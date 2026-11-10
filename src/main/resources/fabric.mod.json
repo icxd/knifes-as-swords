@@ -1,0 +1,26 @@
+{
+	"schemaVersion": 1,
+	"id": "knives_as_swords",
+	"version": "${version}",
+	"name": "Knives as Swords",
+	"description": "Client-side and purely visual: renders vanilla swords as knives converted at runtime from the player's own local game files. Ships no third-party assets.",
+	"authors": [
+		"icxd"
+	],
+	"contact": {
+		"sources": "https://github.com/icxd/knifes-as-swords"
+	},
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"io.github.icxd.knives_as_swords.KnivesAsSwordsClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

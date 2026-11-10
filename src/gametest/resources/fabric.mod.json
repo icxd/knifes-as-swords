@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "knives_as_swords_test",
+	"version": "1.0.0",
+	"name": "Knives as Swords game tests",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"io.github.icxd.knives_as_swords.gametest.KnivesClientGameTest"
+		]
+	},
+	"depends": {
+		"knives_as_swords": "*"
+	}
+}

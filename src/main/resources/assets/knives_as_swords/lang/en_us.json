@@ -1,0 +1,23 @@
+{
+	"knives_as_swords.status.scanning": "Still looking for the game files, try again in a moment.",
+	"knives_as_swords.status.game_found": "CS2: %s (build %s)",
+	"knives_as_swords.status.game_missing": "CS2 not found. Swords keep their vanilla look. If it is installed, set cs2Dir in config/knives_as_swords.json and run /knives rescan.",
+	"knives_as_swords.status.knives": "Knife models found: %s",
+	"knives_as_swords.status.extractor.ready": "Extractor: ready",
+	"knives_as_swords.status.extractor.needs_consent": "Extractor: not downloaded yet (you will be asked first)",
+	"knives_as_swords.status.extractor.needs_download": "Extractor: will be downloaded when first needed",
+	"knives_as_swords.status.extractor.unsupported_platform": "Extractor: no build exists for this platform; set extractorPath in config/knives_as_swords.json",
+	"knives_as_swords.status.data_dir": "Local cache: %s",
+	"knives_as_swords.list.header": "%s knife models:",
+	"knives_as_swords.rescan.started": "Looking for the game files...",
+	"knives_as_swords.export.unknown_knife": "No knife model named '%s'. Try /knives list.",
+	"knives_as_swords.export.started": "Converting %s...",
+	"knives_as_swords.export.downloading": "Downloading the extractor first (about 50 MB)...",
+	"knives_as_swords.export.done": "Converted %s: %s",
+	"knives_as_swords.export.failed": "Could not convert %s: %s",
+	"knives_as_swords.consent.title": "Download the model converter?",
+	"knives_as_swords.consent.message": "To convert knife models from your own game files, Knives as Swords uses Source2Viewer-CLI, an open-source (MIT) tool by the ValveResourceFormat project. It is not bundled with the mod.\n\nDownload version %s (about 50 MB) from github.com/ValveResourceFormat now? The download is checked against a pinned checksum, kept in this game folder, and only runs on your machine. Nothing is uploaded.",
+	"knives_as_swords.consent.accept": "Download",
+	"knives_as_swords.consent.decline": "Not now",
+	"knives_as_swords.consent.declined": "Nothing was downloaded. To use your own copy instead, set extractorPath in config/knives_as_swords.json."
+}
