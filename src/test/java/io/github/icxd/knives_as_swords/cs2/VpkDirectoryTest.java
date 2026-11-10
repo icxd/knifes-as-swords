@@ -86,6 +86,47 @@ class VpkDirectoryTest {
 		assertThrows(IOException.class, () -> VpkDirectory.list(file, path -> true));
 	}
 
+	@ParameterizedTest
+	@ValueSource(ints = {1, 2})
+	void readsAFileStoredInsideTheIndex(int version) throws IOException {
+		byte[] content = "hello from inside the package".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		Path file = temp.resolve("pak01_dir.vpk");
+		new TestVpk().version(version).file("a/other.txt").content("scripts/hello.txt", content).file("z/last.txt")
+				.write(file);
+
+		VpkDirectory.Entry entry = VpkDirectory.list(file, path -> path.equals("scripts/hello.txt")).get(0);
+
+		org.junit.jupiter.api.Assertions.assertArrayEquals(content, VpkDirectory.read(file, entry, 1024));
+		// A cap below the file's size refuses it instead of reading part of it.
+		assertThrows(IOException.class, () -> VpkDirectory.read(file, entry, 5));
+	}
+
+	@Test
+	void readingNoticesDamagedContents() throws IOException {
+		byte[] content = "checksummed".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		Path file = temp.resolve("pak01_dir.vpk");
+		byte[] bytes = new TestVpk().content("scripts/hello.txt", content).bytes();
+		// Flip a letter of the stored file; the index around it stays intact.
+		int at = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1).indexOf("checksummed");
+		bytes[at] = 'C';
+		Files.write(file, bytes);
+
+		VpkDirectory.Entry entry = VpkDirectory.list(file, path -> true).get(0);
+
+		assertThrows(IOException.class, () -> VpkDirectory.read(file, entry, 1024));
+	}
+
+	@Test
+	void readingFromAMissingChunkFails() throws IOException {
+		Path file = temp.resolve("pak01_dir.vpk");
+		new TestVpk().file("a/in_chunk_zero.txt").write(file);
+
+		VpkDirectory.Entry entry = VpkDirectory.list(file, path -> true).get(0);
+
+		// The entry points into pak01_000.vpk, which is not there.
+		assertThrows(IOException.class, () -> VpkDirectory.read(file, entry, 1024));
+	}
+
 	@Test
 	void rejectsIndexWithoutTerminators() throws IOException {
 		byte[] bytes = new TestVpk().file("a/one.x").bytes();

@@ -21,6 +21,7 @@ import java.util.function.Predicate;
 public final class VpkDirectory {
 	private static final int SIGNATURE = 0x55AA1234;
 	private static final int ENTRY_TERMINATOR = 0xFFFF;
+	private static final String DIRECTORY_SUFFIX = "_dir.vpk";
 	/** Sanity cap; CS2's index is a few tens of megabytes at most. */
 	private static final long MAX_TREE_SIZE = 512L * 1024 * 1024;
 
@@ -33,8 +34,10 @@ public final class VpkDirectory {
 	 * @param offset offset of the data within that chunk
 	 * @param length size of the data in the chunk, excluding preload bytes
 	 * @param preloadBytes number of leading bytes stored in the directory file itself
+	 * @param preloadOffset where in the directory file those leading bytes are
 	 */
-	public record Entry(String path, int crc32, int archiveIndex, long offset, long length, int preloadBytes) {
+	public record Entry(String path, int crc32, int archiveIndex, long offset, long length, int preloadBytes,
+			long preloadOffset) {
 		public static final int IN_DIRECTORY = 0x7FFF;
 
 		public long size() {
@@ -47,7 +50,8 @@ public final class VpkDirectory {
 
 	/** Lists every entry whose full path is accepted by {@code filter}. */
 	public static List<Entry> list(Path dirVpk, Predicate<String> filter) throws IOException {
-		ByteBuffer tree = readTree(dirVpk);
+		Tree index = readTree(dirVpk);
+		ByteBuffer tree = index.data();
 		List<Entry> entries = new ArrayList<>();
 
 		try {
@@ -79,11 +83,12 @@ public final class VpkDirectory {
 						if (preloadBytes > tree.remaining()) {
 							throw new EOFException("Corrupt VPK index in " + dirVpk + ": truncated preload data");
 						}
+						long preloadOffset = index.headerSize() + tree.position();
 						tree.position(tree.position() + preloadBytes);
 
 						String path = buildPath(directory, name, extension);
 						if (filter.test(path)) {
-							entries.add(new Entry(path, crc32, archiveIndex, offset, length, preloadBytes));
+							entries.add(new Entry(path, crc32, archiveIndex, offset, length, preloadBytes, preloadOffset));
 						}
 					}
 				}
@@ -95,7 +100,59 @@ public final class VpkDirectory {
 		return entries;
 	}
 
-	private static ByteBuffer readTree(Path dirVpk) throws IOException {
+	/**
+	 * Reads one file out of the package. Meant for the game's plain text files (item definitions,
+	 * translations); compiled resources are left to the external extractor.
+	 *
+	 * @param maxSize refuse anything larger than this many bytes
+	 */
+	public static byte[] read(Path dirVpk, Entry entry, int maxSize) throws IOException {
+		if (entry.size() > maxSize) {
+			throw new IOException(entry.path() + " is larger than expected (" + entry.size() + " bytes)");
+		}
+		ByteBuffer out = ByteBuffer.allocate((int) entry.size());
+
+		if (entry.preloadBytes() > 0) {
+			try (FileChannel channel = FileChannel.open(dirVpk, StandardOpenOption.READ)) {
+				out.limit(entry.preloadBytes());
+				readFully(channel.position(entry.preloadOffset()), out, dirVpk);
+				out.limit(out.capacity());
+			}
+		}
+		if (entry.length() > 0) {
+			Path file;
+			long offset = entry.offset();
+			if (entry.archiveIndex() == Entry.IN_DIRECTORY) {
+				// Stored in the directory file itself, after the index.
+				file = dirVpk;
+				Tree index = readTree(dirVpk);
+				offset += index.headerSize() + index.data().capacity();
+			} else {
+				String name = dirVpk.getFileName().toString();
+				if (!name.endsWith(DIRECTORY_SUFFIX)) {
+					throw new IOException("Not a VPK directory file: " + dirVpk);
+				}
+				String prefix = name.substring(0, name.length() - DIRECTORY_SUFFIX.length());
+				file = dirVpk.resolveSibling(String.format(java.util.Locale.ROOT, "%s_%03d.vpk", prefix,
+						entry.archiveIndex()));
+			}
+			try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
+				readFully(channel.position(offset), out, file);
+			}
+		}
+
+		java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+		crc.update(out.array());
+		if ((int) crc.getValue() != entry.crc32()) {
+			throw new IOException("Checksum mismatch reading " + entry.path() + " from " + dirVpk);
+		}
+		return out.array();
+	}
+
+	private record Tree(ByteBuffer data, long headerSize) {
+	}
+
+	private static Tree readTree(Path dirVpk) throws IOException {
 		try (FileChannel channel = FileChannel.open(dirVpk, StandardOpenOption.READ)) {
 			ByteBuffer header = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN);
 			readFully(channel, header, dirVpk);
@@ -120,7 +177,7 @@ public final class VpkDirectory {
 			channel.position(headerSize);
 			readFully(channel, tree, dirVpk);
 			tree.flip();
-			return tree;
+			return new Tree(tree, headerSize);
 		}
 	}
 

@@ -7,13 +7,17 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.zip.CRC32;
 
 /** Writes small synthetic VPK directory files for tests. No game data is involved. */
 final class TestVpk {
 	private final Map<String, byte[]> preloadByPath = new LinkedHashMap<>();
+	private final Set<String> wholeFiles = new HashSet<>();
 	private int version = 2;
 
 	TestVpk version(int version) {
@@ -32,6 +36,15 @@ final class TestVpk {
 		return this;
 	}
 
+	/**
+	 * Adds a file that is stored completely inside the index, with a correct checksum, so that it
+	 * can actually be read back. At most 65535 bytes.
+	 */
+	TestVpk content(String path, byte[] content) {
+		wholeFiles.add(path);
+		return file(path, content);
+	}
+
 	void write(Path target) throws IOException {
 		Files.createDirectories(target.getParent());
 		Files.write(target, bytes());
@@ -40,6 +53,8 @@ final class TestVpk {
 	byte[] bytes() {
 		// extension -> directory -> name -> preload
 		Map<String, Map<String, Map<String, byte[]>>> tree = new TreeMap<>();
+		// directory + "/" + name + "." + extension of the entries that hold a whole file
+		Set<String> whole = new HashSet<>();
 		preloadByPath.forEach((path, preload) -> {
 			int slash = path.lastIndexOf('/');
 			String directory = slash < 0 ? " " : path.substring(0, slash);
@@ -50,6 +65,9 @@ final class TestVpk {
 			tree.computeIfAbsent(extension, key -> new TreeMap<>())
 					.computeIfAbsent(directory, key -> new TreeMap<>())
 					.put(name.isEmpty() ? " " : name, preload);
+			if (wholeFiles.contains(path)) {
+				whole.add(directory + "/" + (name.isEmpty() ? " " : name) + "." + extension);
+			}
 		});
 
 		ByteArrayOutputStream body = new ByteArrayOutputStream();
@@ -62,15 +80,25 @@ final class TestVpk {
 					writeString(body, file.getKey());
 					byte[] preload = file.getValue();
 					ByteBuffer entry = ByteBuffer.allocate(18).order(ByteOrder.LITTLE_ENDIAN);
-					entry.putInt(0xC0FFEE00 + offset); // crc
-					entry.putShort((short) preload.length);
-					entry.putShort((short) 0); // archive index
-					entry.putInt(offset);
-					entry.putInt(100); // length
+					if (whole.contains(byDirectory.getKey() + "/" + file.getKey() + "." + byExtension.getKey())) {
+						CRC32 crc = new CRC32();
+						crc.update(preload);
+						entry.putInt((int) crc.getValue());
+						entry.putShort((short) preload.length);
+						entry.putShort((short) 0x7FFF); // nothing outside the index
+						entry.putInt(0);
+						entry.putInt(0);
+					} else {
+						entry.putInt(0xC0FFEE00 + offset); // crc
+						entry.putShort((short) preload.length);
+						entry.putShort((short) 0); // archive index
+						entry.putInt(offset);
+						entry.putInt(100); // length
+						offset += 100;
+					}
 					entry.putShort((short) 0xFFFF);
 					body.writeBytes(entry.array());
 					body.writeBytes(preload);
-					offset += 100;
 				}
 				body.write(0);
 			}

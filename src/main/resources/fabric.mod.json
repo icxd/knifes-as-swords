@@ -17,6 +17,9 @@
 			"io.github.icxd.knives_as_swords.KnivesAsSwordsClient"
 		]
 	},
+	"mixins": [
+		"knives_as_swords.mixins.json"
+	],
 	"depends": {
 		"fabricloader": ">=0.20.1",
 		"minecraft": "~26.3",

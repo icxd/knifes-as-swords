@@ -19,8 +19,8 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 
 /**
- * The client-side {@code /knives} command: a development and troubleshooting aid until the
- * config screen exists. It never talks to the server.
+ * The client-side {@code /knives} command: a development and troubleshooting aid next to the
+ * settings screen. It never talks to the server.
  */
 final class KnivesCommand {
 	private static final String PREFIX = KnivesAsSwordsClient.MOD_ID + ".";

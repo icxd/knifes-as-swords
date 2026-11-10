@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 public final class Source2ViewerCli {
 	private static final Pattern VERSION_LINE = Pattern.compile("(?m)^Version:\\s*(\\S+)");
 	/** Only the end of the output is kept; that is where errors and the summary are. */
-	private static final int MAX_OUTPUT_BYTES = 64 * 1024;
+	private static final int MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 	public record Result(int exitCode, String output) {
 	}

@@ -23,6 +23,9 @@ bin/
 # macos
 *.DS_Store
 
+# written by the unit tests, which log through the game's logging setup
+logs/
+
 # fabric (the dev game dir; also holds the mod's local cache and downloaded extractor)
 run/
 

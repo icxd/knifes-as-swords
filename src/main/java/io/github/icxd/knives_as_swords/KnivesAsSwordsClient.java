@@ -1,9 +1,22 @@
 package io.github.icxd.knives_as_swords;
 
+import com.mojang.blaze3d.platform.InputConstants;
+import io.github.icxd.knives_as_swords.render.FirstPersonKnife;
+import io.github.icxd.knives_as_swords.render.KnifePipelines;
+import io.github.icxd.knives_as_swords.render.KnifeVisuals;
+import io.github.icxd.knives_as_swords.screen.KnifePreviewRenderer;
+import io.github.icxd.knives_as_swords.screen.KnivesScreen;
 import java.nio.file.Path;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.PictureInPictureRendererRegistry;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,10 +25,18 @@ public final class KnivesAsSwordsClient implements ClientModInitializer {
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	private static KnifeRuntime runtime;
+	private static KnifeVisuals visuals;
+	/** The setup hint is shown once per game session, not on every world joined. */
+	private static boolean hinted;
 
 	/** The mod's runtime state; available once the client has initialized. */
 	public static KnifeRuntime runtime() {
 		return runtime;
+	}
+
+	/** The knives loaded for drawing; available once the client has initialized. */
+	public static KnifeVisuals visuals() {
+		return visuals;
 	}
 
 	@Override
@@ -26,10 +47,46 @@ public final class KnivesAsSwordsClient implements ClientModInitializer {
 		Path dataDir = loader.getGameDir().resolve(MOD_ID);
 
 		KnifeRuntime runtime = new KnifeRuntime(configFile, dataDir);
+		KnivesAsSwordsClient.visuals = new KnifeVisuals(runtime);
 		KnivesAsSwordsClient.runtime = runtime;
 		runtime.scan();
 
 		ClientCommandRegistrationCallback.EVENT.register(
 				(dispatcher, buildContext) -> KnivesCommand.register(dispatcher, runtime));
+
+		KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath(MOD_ID, "knives"));
+		KeyMapping inspectKey = KeyMappingHelper.registerKeyMapping(
+				new KeyMapping("key." + MOD_ID + ".inspect", InputConstants.KEY_G, category));
+		KeyMapping settingsKey = KeyMappingHelper.registerKeyMapping(
+				new KeyMapping("key." + MOD_ID + ".settings", InputConstants.KEY_K, category));
+		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			while (inspectKey.consumeClick()) {
+				FirstPersonKnife.inspect();
+			}
+			while (settingsKey.consumeClick()) {
+				client.gui.setScreen(new KnivesScreen(null));
+			}
+		});
+
+		// The game was found but nothing can be shown yet: say once where to go, since nothing is
+		// ever downloaded without being asked for.
+		ClientPlayConnectionEvents.JOIN.register((listener, sender, client) -> client.execute(() -> {
+			if (hinted || client.player == null) {
+				return;
+			}
+			boolean gameFound = runtime.state().map(state -> state.install().isPresent()).orElse(false);
+			if (gameFound && runtime.config().enabled
+					&& runtime.extractorStatus() == KnifeRuntime.ExtractorStatus.NEEDS_CONSENT) {
+				hinted = true;
+				client.player.sendSystemMessage(Component.translatable(MOD_ID + ".hint.setup",
+						settingsKey.getTranslatedKeyMessage()));
+			}
+		}));
+
+		// The shader knives are drawn with has to be known before the game compiles its shaders.
+		KnifePipelines.init();
+
+		// The turnable knife in the settings screen.
+		PictureInPictureRendererRegistry.register(context -> new KnifePreviewRenderer());
 	}
 }

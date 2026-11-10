@@ -6,7 +6,8 @@
 	"environment": "client",
 	"entrypoints": {
 		"fabric-client-gametest": [
-			"io.github.icxd.knives_as_swords.gametest.KnivesClientGameTest"
+			"io.github.icxd.knives_as_swords.gametest.KnivesClientGameTest",
+			"io.github.icxd.knives_as_swords.gametest.KnivesVisualGameTest"
 		]
 	},
 	"depends": {

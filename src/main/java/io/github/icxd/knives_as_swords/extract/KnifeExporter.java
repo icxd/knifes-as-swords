@@ -8,9 +8,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -22,7 +25,12 @@ import java.util.stream.Stream;
  */
 public final class KnifeExporter {
 	private static final String MARKER = "export.txt";
+	private static final String BONES = "bones.txt";
+	private static final String ANIMATIONS_MARKER = "animations.txt";
 	private static final Duration TIMEOUT = Duration.ofMinutes(5);
+	/** The model's bone list in the extractor's text dump of the model's data block. */
+	private static final Pattern BONE_NAMES = Pattern.compile("m_boneName\\s*=\\s*\\[([^\\]]*)\\]");
+	private static final Pattern QUOTED = Pattern.compile("\"([^\"]*)\"");
 
 	private final Path cacheDir;
 
@@ -78,6 +86,84 @@ public final class KnifeExporter {
 				"Extractor produced no glTF for " + knife.modelPath() + "\n" + result.output()));
 		Files.writeString(folder.resolve(MARKER), folder.relativize(model).toString(), StandardCharsets.UTF_8);
 		return model;
+	}
+
+	/**
+	 * The names of the model's bones, in the order its vertices refer to them. The converted
+	 * model itself carries bone numbers only, because its skeleton lives in a separate file.
+	 */
+	public List<String> boneNames(Source2ViewerCli cli, Cs2Install install, KnifeModel knife)
+			throws IOException, InterruptedException {
+		Path file = folder(install, knife).resolve(BONES);
+		if (Files.isRegularFile(file)) {
+			return Files.readAllLines(file, StandardCharsets.UTF_8).stream().filter(line -> !line.isBlank()).toList();
+		}
+
+		Files.createDirectories(file.getParent());
+		Source2ViewerCli.Result result = cli.run(file.getParent(), TIMEOUT,
+				"--input", install.mainPackage().toString(),
+				"--vpk_filepath", knife.modelPath(),
+				"--block", "DATA");
+		List<String> names = parseBoneNames(result.output());
+		if (result.exitCode() != 0 || names.isEmpty()) {
+			throw new IOException("Could not read the bones of " + knife.modelPath() + " (exit code "
+					+ result.exitCode() + ")");
+		}
+		Files.write(file, names, StandardCharsets.UTF_8);
+		return names;
+	}
+
+	static List<String> parseBoneNames(String dataBlockDump) {
+		List<String> names = new ArrayList<>();
+		Matcher list = BONE_NAMES.matcher(dataBlockDump);
+		if (list.find()) {
+			Matcher name = QUOTED.matcher(list.group(1));
+			while (name.find()) {
+				names.add(name.group(1));
+			}
+		}
+		return names;
+	}
+
+	/**
+	 * Converts the knife's first-person animation clips to glTF, one file per clip, unless that
+	 * is already cached. Returns the folder holding them.
+	 */
+	public Path exportAnimations(Source2ViewerCli cli, Cs2Install install, KnifeModel knife)
+			throws IOException, InterruptedException {
+		if (!knife.hasAnimations()) {
+			throw new IOException("The game has no first-person animations for " + knife.id());
+		}
+		Path folder = cacheDir.resolve(install.buildId()).resolve("animations").resolve(knife.id());
+		Path marker = folder.resolve(ANIMATIONS_MARKER);
+		if (Files.isRegularFile(marker)) {
+			Path clips = folder.resolve(Files.readString(marker, StandardCharsets.UTF_8).trim()).normalize();
+			if (clips.startsWith(folder) && Files.isDirectory(clips)) {
+				return clips;
+			}
+		}
+
+		FileUtil.deleteRecursively(folder);
+		Files.createDirectories(folder);
+		Source2ViewerCli.Result result = cli.run(folder, TIMEOUT,
+				"--input", install.mainPackage().toString(),
+				"--vpk_filepath", knife.animationFolder(),
+				"--vpk_extensions", "vnmclip_c",
+				"--output", folder.toString(),
+				"--vpk_decompile",
+				"--gltf_export_format", "glb",
+				"--gltf_export_animations");
+		Path clips = folder.resolve(knife.animationFolder()).normalize();
+		boolean any;
+		try (Stream<Path> files = Files.isDirectory(clips) ? Files.list(clips) : Stream.empty()) {
+			any = files.anyMatch(file -> file.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".glb"));
+		}
+		if (result.exitCode() != 0 || !clips.startsWith(folder) || !any) {
+			throw new IOException("Extractor produced no animations for " + knife.id() + " (exit code "
+					+ result.exitCode() + ")\n" + result.output());
+		}
+		Files.writeString(marker, folder.relativize(clips).toString(), StandardCharsets.UTF_8);
+		return clips;
 	}
 
 	/** Removes cached conversions made from other game versions. */

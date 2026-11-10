@@ -1,0 +1,16 @@
+{
+	"required": true,
+	"package": "io.github.icxd.knives_as_swords.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"FirstPersonHandsAndItemsRendererMixin",
+		"ItemModelResolverMixin",
+		"ItemStackRenderStateAccessor",
+		"LayerRenderStateAccessor",
+		"LivingEntityMixin",
+		"MultiPlayerGameModeMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

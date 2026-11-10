@@ -1,22 +1,28 @@
 package io.github.icxd.knives_as_swords;
 
 import io.github.icxd.knives_as_swords.cs2.Cs2Install;
+import io.github.icxd.knives_as_swords.cs2.FinishCatalog;
 import io.github.icxd.knives_as_swords.cs2.KnifeModel;
 import io.github.icxd.knives_as_swords.cs2.SteamLocator;
 import io.github.icxd.knives_as_swords.extract.ExtractorInstaller;
 import io.github.icxd.knives_as_swords.extract.ExtractorRelease;
 import io.github.icxd.knives_as_swords.extract.KnifeExporter;
+import io.github.icxd.knives_as_swords.extract.ResourceDumper;
 import io.github.icxd.knives_as_swords.extract.Source2ViewerCli;
+import io.github.icxd.knives_as_swords.finish.FinishPainter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 
@@ -30,8 +36,11 @@ public final class KnifeRuntime {
 	/**
 	 * @param install the CS2 install, if one was found
 	 * @param knives the knife models in it
+	 * @param finishes which finishes exist for which knife, and what everything is called
 	 */
-	public record State(Optional<Cs2Install> install, List<KnifeModel> knives) {
+	public record State(Optional<Cs2Install> install, List<KnifeModel> knives, FinishCatalog finishes) {
+		static final State NOTHING = new State(Optional.empty(), List.of(), FinishCatalog.empty());
+
 		public Optional<KnifeModel> knife(String id) {
 			return knives.stream().filter(knife -> knife.id().equals(id)).findFirst();
 		}
@@ -51,6 +60,7 @@ public final class KnifeRuntime {
 	private final Path configFile;
 	private final Path dataDir;
 	private final KnifeExporter exporter;
+	private final ResourceDumper dumper;
 	private final Optional<ExtractorInstaller> installer;
 	private final ExecutorService worker = Executors.newSingleThreadExecutor(runnable -> {
 		Thread thread = new Thread(runnable, KnivesAsSwordsClient.MOD_ID + "-worker");
@@ -62,6 +72,10 @@ public final class KnifeRuntime {
 	private volatile ModConfig config = new ModConfig();
 	/** {@code null} until the first scan has finished. */
 	private volatile State state;
+	/** Counts finished scans; whatever was built from the previous game files is stale after a change. */
+	private volatile int scanVersion;
+	/** Counts config changes, so cached per-sword choices can be dropped. */
+	private volatile int configVersion;
 	/** Worker thread only. */
 	private Source2ViewerCli cli;
 
@@ -69,6 +83,7 @@ public final class KnifeRuntime {
 		this.configFile = configFile;
 		this.dataDir = dataDir;
 		this.exporter = new KnifeExporter(dataDir.resolve("cache"));
+		this.dumper = new ResourceDumper(dataDir.resolve("cache"));
 		this.installer = ExtractorRelease.current()
 				.map(release -> ExtractorInstaller.forRelease(dataDir.resolve("tools"), release));
 	}
@@ -82,6 +97,41 @@ public final class KnifeRuntime {
 		return dataDir;
 	}
 
+	/** The current settings. Change them through {@link #updateConfig}, never directly. */
+	public ModConfig config() {
+		return config;
+	}
+
+	public int scanVersion() {
+		return scanVersion;
+	}
+
+	public int configVersion() {
+		return configVersion;
+	}
+
+	/** Applies a change to the settings and saves them. Client thread only. */
+	public void updateConfig(Consumer<ModConfig> change) {
+		ModConfig config = this.config;
+		change.accept(config);
+		config.save(configFile);
+		configVersion++;
+	}
+
+	/** Runs file or process work on the mod's worker thread. */
+	public <T> CompletableFuture<T> onWorker(Callable<T> work) {
+		return CompletableFuture.supplyAsync(() -> {
+			try {
+				return work.call();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new CompletionException(e);
+			} catch (Exception e) {
+				throw new CompletionException(e);
+			}
+		}, worker);
+	}
+
 	/** Reloads the config, then looks for CS2 and lists its knives, in the background. */
 	public CompletableFuture<State> scan() {
 		return CompletableFuture.supplyAsync(() -> {
@@ -91,10 +141,10 @@ public final class KnifeRuntime {
 			State scanned;
 			try {
 				scanned = scanNow();
-			} catch (RuntimeException e) {
+			} catch (RuntimeException | StackOverflowError e) {
 				// Whatever went wrong, the game must keep working with vanilla swords.
 				LOGGER.error("Unexpected error while looking for the game files", e);
-				scanned = new State(Optional.empty(), List.of());
+				scanned = State.NOTHING;
 			}
 			state = scanned;
 			return scanned;
@@ -105,7 +155,7 @@ public final class KnifeRuntime {
 		Optional<Cs2Install> install = locate();
 		if (install.isEmpty()) {
 			LOGGER.info("CS2 not found; swords keep their vanilla look");
-			return new State(Optional.empty(), List.of());
+			return State.NOTHING;
 		}
 		LOGGER.info("Found CS2 at {} (build {})", install.get().root(), install.get().buildId());
 
@@ -114,7 +164,7 @@ public final class KnifeRuntime {
 			knives = List.copyOf(KnifeModel.list(install.get()));
 		} catch (IOException e) {
 			LOGGER.warn("Could not read {}", install.get().mainPackage(), e);
-			return new State(install, List.of());
+			return new State(install, List.of(), FinishCatalog.empty());
 		}
 		LOGGER.info("Found {} knife models: {}", knives.size(),
 				knives.stream().map(KnifeModel::id).collect(Collectors.joining(", ")));
@@ -127,7 +177,19 @@ public final class KnifeRuntime {
 		} catch (IOException e) {
 			LOGGER.warn("Could not clean up the cache of older game versions", e);
 		}
-		return new State(install, knives);
+
+		// Without the list of finishes the knives still work, just unpainted.
+		FinishCatalog finishes = FinishCatalog.empty();
+		try {
+			finishes = FinishCatalog.load(install.get(), knives);
+			FinishCatalog loaded = finishes;
+			LOGGER.info("Found {} finishes across {} knives",
+					knives.stream().mapToInt(knife -> loaded.finishes(knife.id()).size()).sum(),
+					knives.stream().filter(knife -> !loaded.finishes(knife.id()).isEmpty()).count());
+		} catch (IOException | RuntimeException | StackOverflowError e) {
+			LOGGER.warn("Could not read the game's list of finishes", e);
+		}
+		return new State(install, knives, finishes);
 	}
 
 	private Optional<Cs2Install> locate() {
@@ -163,9 +225,7 @@ public final class KnifeRuntime {
 
 	/** Records that the player agreed to downloading the extractor. */
 	public void allowExtractorDownload() {
-		ModConfig config = this.config;
-		config.extractorDownloadAllowed = true;
-		config.save(configFile);
+		updateConfig(config -> config.extractorDownloadAllowed = true);
 	}
 
 	/**
@@ -187,6 +247,51 @@ public final class KnifeRuntime {
 				throw new CompletionException(e);
 			}
 		}, worker);
+	}
+
+	/**
+	 * A knife's converted first-person animation clips, plus what is needed to apply them.
+	 *
+	 * @param clipFolder folder holding one glTF file per clip
+	 * @param boneNames the model's bones, in the order its vertices refer to them
+	 */
+	public record AnimationSource(Path clipFolder, List<String> boneNames) {
+	}
+
+	/**
+	 * Converts a knife's first-person animations to glTF in the local cache. Like
+	 * {@link #export}, this downloads the extractor first if that is needed and agreed to.
+	 */
+	public CompletableFuture<AnimationSource> exportAnimations(Cs2Install install, KnifeModel knife) {
+		return onWorker(() -> {
+			Source2ViewerCli extractor = extractor();
+			List<String> boneNames = exporter.boneNames(extractor, install, knife);
+			return new AnimationSource(exporter.exportAnimations(extractor, install, knife), boneNames);
+		});
+	}
+
+	/**
+	 * Paints a knife with a finish; the result is its colour texture and its surface map, each
+	 * {@code size * size} pixels. Worker thread only (run it through {@link #onWorker}).
+	 *
+	 * @param knifeMaterial the knife's own material, as recorded in its converted model
+	 */
+	public FinishPainter.Painted paintFinish(Cs2Install install, String knifeMaterial, FinishCatalog.Finish finish,
+			int pattern, float wear, int size) throws IOException, InterruptedException {
+		Source2ViewerCli extractor = extractor();
+		FinishPainter.Resources resources = new FinishPainter.Resources() {
+			@Override
+			public Map<String, String> dataBlocks(List<String> paths) throws IOException, InterruptedException {
+				return dumper.dataBlocks(extractor, install, paths);
+			}
+
+			@Override
+			public Map<String, Path> textures(List<String> paths) throws IOException, InterruptedException {
+				return dumper.textures(extractor, install, paths);
+			}
+		};
+		return FinishPainter.paint(resources, knifeMaterial, finish.compositePath(), pattern, finish.clampWear(wear),
+				size);
 	}
 
 	/** Worker thread only. */
